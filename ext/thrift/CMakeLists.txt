@@ -6,6 +6,8 @@ set(git_tag ${THRIFT_GIT_TAG})
 set(THRIFT_INSTALL_PREFIX "${PROJECT_BINARY_DIR}/ext/thrift")
 
 set(THRIFT_CMAKE_ARGS
+    "-Wno-dev;"
+    "-DCMAKE_SUPPRESS_DEVELOPER_WARNINGS=ON;"
     "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE};"
     "-DWITH_JAVA=OFF;"
     "-DWITH_JAVASCRIPT=OFF;"
@@ -48,6 +50,8 @@ endif()
 ExternalProject_Add(thrift
     GIT_REPOSITORY ${target_url}
     GIT_TAG ${git_tag}
+    GIT_SHALLOW TRUE
+    GIT_PROGRESS TRUE
     CMAKE_ARGS ${THRIFT_CMAKE_ARGS}
 )
 
@@ -60,6 +64,17 @@ install(DIRECTORY ${THRIFT_INSTALL_PREFIX}/lib
     DESTINATION .
     FILES_MATCHING PATTERN "*.lib" PATTERN "*.dll" PATTERN "*.so*" PATTERN "*.a*"
 )
+
+# Copy the thrift compiler built from source into the SDK codegen folder.
+if (WIN32)
+    install(PROGRAMS ${THRIFT_INSTALL_PREFIX}/bin/thrift.exe
+        DESTINATION bin/Windows
+    )
+else()
+    install(PROGRAMS ${THRIFT_INSTALL_PREFIX}/bin/thrift
+        DESTINATION bin/${CMAKE_SYSTEM_NAME}
+    )
+endif()
 
 if (WIN32)
     STRING(REGEX REPLACE "/" "\\\\" WIN_BOOST_INCLUDE_DIR ${BOOST_INCLUDEDIR})

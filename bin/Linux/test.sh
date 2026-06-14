@@ -12,12 +12,29 @@ BUILD_DIR="$ROOT/builder"
 GCOV_DIR="$ROOT/gcov_report"
 GCOV_TMP="$ROOT/.gcov_tmp"
 GCOV_PATTERN=`find $ROOT/include $ROOT/src -name '*.h' -o -name '*.cpp'`
-TIME=`date --rfc-3339=seconds`
+TIME=`date '+%Y-%m-%d %H:%M:%S%z'`
 CMAKE_OPTIONS="$CMAKE_OPTIONS -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++"
 MAKE_OPTIONS="$MAKE_OPTIONS -j$JOB_NUM"
 
 CBIN_DIR=$(dirname "$0")
 TOP_DIR=$CBIN_DIR/../..
+
+function download_file()
+{
+    local url="$1"
+    local output="$2"
+
+    if command -v wget >/dev/null 2>&1
+    then
+        wget --no-check-certificate -nv -O "$output" "$url"
+    elif command -v curl >/dev/null 2>&1
+    then
+        curl -fL --insecure -o "$output" "$url"
+    else
+        echo "ERROR: neither wget nor curl is installed"
+        return 1
+    fi
+}
 
 if [ "$RUN_VERBOSE" == "YES" ]
 then
@@ -33,12 +50,24 @@ else
     echo "ENABLE_GCOV=NO"
 fi
 
-if [ ! -f "$TOP_DIR/bin/Linux/thrift" ]
+# rDSN now uses the thrift compiler built from ext/thrift and installed under
+# builder/output/bin/${CMAKE_SYSTEM_NAME}. Keep the old prebuilt-binary download
+# path disabled below for easy rollback if needed.
+if false
 then
-    echo "Downloading thrift..."
-    wget --no-check-certificate -nv https://github.com/linmajia/thrift/raw/master/pre-built/ubuntu14.04/thrift
-    chmod u+x thrift
-    mv thrift $TOP_DIR/bin/Linux
+    if [ ! -f "$TOP_DIR/bin/Linux/thrift" ]
+    then
+        echo "Downloading thrift..."
+        download_file https://github.com/linmajia/thrift/raw/master/pre-built/ubuntu14.04/thrift thrift
+        if [ $? -ne 0 ]
+        then
+            echo "ERROR: download thrift failed"
+            rm -f thrift
+            exit -1
+        fi
+        chmod u+x thrift
+        mv thrift "$TOP_DIR/bin/Linux"
+    fi
 fi
 
 echo "########################### TEST START ############################################"
@@ -84,7 +113,7 @@ do
     echo $dir
     if [ -f "$dir/gtests" ]
     then
-        pushd $dir
+        pushd "$dir" >/dev/null
         cat $dir/gtests | while read -r line || [ -n "$line" ]; do
             echo "============ run unit tests in $dir with $line ============"
             rm -fr ./data
@@ -102,11 +131,11 @@ do
                     echo "---- gdb $SVC_HOST core ----"
                     gdb $SVC_HOST core -ex "thread apply all bt" -ex "set pagination 0" -batch
                 fi
-                popd
+                popd >/dev/null
                 exit -1
             fi
         done
-        popd
+        popd >/dev/null
     fi    
 done
 
@@ -117,16 +146,16 @@ do
     echo $dir
     if [ -f "$dir/test.sh" ]
     then
-        pushd $dir
+        pushd "$dir" >/dev/null
         echo "============ run test.sh in $dir ============"
         REPORT_DIR=$REPORT_DIR ./test.sh
 
         if [ $? -ne 0 ]; then
             echo "run test.sh in $dir failed"
-            popd
+            popd >/dev/null
             exit -1
         fi
-        popd
+        popd >/dev/null
     fi    
 done
 

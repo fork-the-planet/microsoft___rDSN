@@ -39,7 +39,9 @@
 
 # include "idl_test.types.h"
 
+# include <fstream>
 # include <iostream>
+# include <iterator>
 # include <vector>
 # include "stdlib.h"
 
@@ -93,6 +95,38 @@ void copy_file(const std::string& src, const std::string& dst, bool &result)
     execute(cmd, result);
 }
 
+void replace_in_file(const std::string& path, const std::string& from, const std::string& to, bool &result)
+{
+    std::ifstream input(file(path).c_str(), std::ios::in | std::ios::binary);
+    if (!input.is_open())
+    {
+        result = false;
+        return;
+    }
+
+    std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    input.close();
+
+    const size_t pos = content.find(from);
+    if (pos == std::string::npos)
+    {
+        result = false;
+        return;
+    }
+
+    content.replace(pos, from.length(), to);
+
+    std::ofstream output(file(path).c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
+    if (!output.is_open())
+    {
+        result = false;
+        return;
+    }
+
+    output << content;
+    result = result && output.good();
+}
+
 void create_dir(const char* dir, bool &result)
 {
     bool ret = dsn::utils::filesystem::create_directory(file(dir));
@@ -109,6 +143,32 @@ void rm_dir(const char* dir, bool &result)
     execute(cmd, result);
 }
 
+std::string get_generated_project_dsn_root()
+{
+    if (::dsn::utils::filesystem::file_exists(combine(DSN_INSTALL_ROOT_DIR, "bin/dsn.cmake")))
+    {
+        return file(DSN_INSTALL_ROOT_DIR);
+    }
+
+    return file(DSN_ROOT_DIR);
+}
+
+std::string get_codegen_script()
+{
+#ifdef WIN32
+    const char* script = "bin/dsn.cg.bat";
+#else
+    const char* script = "bin/dsn.cg.sh";
+#endif
+    std::string installed_script = combine(DSN_INSTALL_ROOT_DIR, script);
+    if (::dsn::utils::filesystem::file_exists(installed_script))
+    {
+        return file(installed_script);
+    }
+
+    return file(combine(DSN_ROOT_DIR, script));
+}
+
 void cmake(Language lang, bool &result)
 {
     create_dir("builder", result);
@@ -119,15 +179,32 @@ void cmake(Language lang, bool &result)
 #else
     std::string cmake_cmd = std::string("cd builder && cmake ") + file("../src");
 #endif
+    cmake_cmd += std::string(" -DDSN_ROOT=") + get_generated_project_dsn_root();
     
     execute(cmake_cmd, result);
+    if (!result)
+    {
+        std::cerr << "Failed to configure generated counter project with CMake." << std::endl;
+        return;
+    }
+
     if (lang == lang_cpp)
     {
 #ifdef _WIN32
         execute(std::string("msbuild ") + file("builder/counter.sln"), result);
+        if (!result)
+        {
+            std::cerr << "Failed to build generated counter project with MSBuild." << std::endl;
+            return;
+        }
         execute(file("builder/bin/counter/Debug/counter.exe") + " " + file("builder/bin/counter/config.ini"), result);
 #else
         execute(std::string("cd builder && make "), result);
+        if (!result)
+        {
+            std::cerr << "Failed to build generated counter project with make." << std::endl;
+            return;
+        }
         execute(file("builder/bin/counter/counter") + " " + file("builder/bin/counter/config.ini"), result);
 #endif
     }
@@ -140,12 +217,7 @@ void cmake(Language lang, bool &result)
 bool test_code_generation(Language lang, IDL idl, Format format)
 {
     bool result = true;
-#ifdef WIN32
-    std::string codegen_bash(DSN_ROOT_DIR "/bin/dsn.cg.bat");
-#else
-    std::string codegen_bash(DSN_ROOT_DIR "/bin/dsn.cg.sh");
-#endif
-    std::string codegen_cmd = codegen_bash
+    std::string codegen_cmd = get_codegen_script()
         + std::string(" counter.")
         + (idl == idl_protobuf ? "proto" : "thrift")
         + (lang == lang_cpp ? " cpp" : " csharp")
@@ -159,6 +231,11 @@ bool test_code_generation(Language lang, IDL idl, Format format)
     if (lang == lang_cpp)
     {
         src_files.push_back("counter.main.cpp");
+        replace_in_file(
+            combine("src", "CMakeLists.txt"),
+            "dsn_add_shared_library()",
+            "dsn_add_executable()",
+            result);
     } else
     {
         src_files.push_back("counter.main.cs");

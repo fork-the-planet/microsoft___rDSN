@@ -3,7 +3,7 @@ set(project_name googletest)
 set(target_url ${GTEST_GIT_SOURCE})
 set(git_tag ${GTEST_GIT_TAG})
 
-set(my_cmake_args "-Dgtest_force_shared_crt=OFF;-DBUILD_SHARED_LIBS=ON;")
+set(my_cmake_args "-Wno-dev;-DCMAKE_SUPPRESS_DEVELOPER_WARNINGS=ON;-Dgtest_force_shared_crt=OFF;-DBUILD_SHARED_LIBS=ON;")
 
 if(WIN32)
     set(target_binaries gtest.lib gtest_main.lib gtest.dll gtest_main.dll)
