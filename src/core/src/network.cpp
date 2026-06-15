@@ -33,15 +33,16 @@
  *     xxxx-xx-xx, author, fix bug about xxx
  */
 
-# ifdef _WIN32
-# include <Winsock2.h>
+# if defined(_WIN32)
+# include <winsock2.h>
+# include <windows.h>
 # endif
 # include <dsn/tool-api/network.h>
 # include <dsn/utility/factory_store.h>
 # include "message_parser_manager.h"
 # include "rpc_engine.h"
 
-# ifdef __TITLE__
+# if defined(__TITLE__)
 # undef __TITLE__
 # endif
 # define __TITLE__ "network"

@@ -34,14 +34,13 @@
  */
 
 
-# ifdef _WIN32
+# if defined(_WIN32)
 
 # define _WINSOCK_DEPRECATED_NO_WARNINGS 1
 
-# include <Winsock2.h>
+# include <winsock2.h>
 # include <ws2tcpip.h>
-# include <Windows.h>
-# pragma comment(lib, "ws2_32.lib")
+# include <windows.h>
 
 # else
 # include <sys/socket.h>
@@ -71,7 +70,7 @@ namespace dsn
     const rpc_address rpc_group_address::_invalid;
 }
 
-#ifdef _WIN32
+# if defined(_WIN32)
 static void net_init()
 {
     static std::once_flag flag;
@@ -86,7 +85,7 @@ static void net_init()
         });
     }
 }
-#endif
+# endif
 
 // name to ip etc.
 DSN_API uint32_t dsn_ipv4_from_host(const char* name)
@@ -99,7 +98,7 @@ DSN_API uint32_t dsn_ipv4_from_host(const char* name)
     {
         hostent* hp = ::gethostbyname(name);
         int err =
-# ifdef _WIN32
+# if defined(_WIN32)
             (int)::WSAGetLastError()
 # else
             h_errno
@@ -139,7 +138,7 @@ DSN_API uint32_t dsn_ipv4_local(const char* network_interface)
 {
     uint32_t ret = 0;
 
-# ifndef _WIN32
+# if !defined(_WIN32)
     static const char loopback[4] = { 127, 0, 0, 1 };
     struct ifaddrs* ifa = nullptr;
     if (getifaddrs(&ifa) == 0)
@@ -201,7 +200,7 @@ DSN_API uint32_t dsn_ipv4_local(const char* network_interface)
             freeifaddrs(ifa);
         }
     }
-#endif
+# endif
 
     return ret;
 }
@@ -211,7 +210,7 @@ DSN_API const char*   dsn_address_to_string(dsn_address_t addr)
     char* p = dsn::tls_dsn.scratch_next();
     auto sz = sizeof(dsn::tls_dsn.scratch_buffer[0]);
     struct in_addr net_addr;
-# ifdef _WIN32
+# if defined(_WIN32)
     char* ip_str;
 # else
     int ip_len;
@@ -221,7 +220,7 @@ DSN_API const char*   dsn_address_to_string(dsn_address_t addr)
     {
     case HOST_TYPE_IPV4:
         net_addr.s_addr = htonl((uint32_t)addr.u.v4.ip);
-# ifdef _WIN32
+# if defined(_WIN32)
         ip_str = inet_ntoa(net_addr);
         snprintf_p(p, sz, "%s:%hu", ip_str, (uint16_t)addr.u.v4.port);
 # else
