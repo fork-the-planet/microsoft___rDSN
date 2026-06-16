@@ -10,6 +10,12 @@ endif()
 
 add_definitions(-DDSN_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../..")
 add_definitions(-DDSN_INSTALL_ROOT_DIR="${CMAKE_INSTALL_PREFIX}")
+if(DEFINED BOOST_INCLUDEDIR AND NOT "${BOOST_INCLUDEDIR}" STREQUAL "")
+    add_definitions(-DDSN_BOOST_INCLUDEDIR="${BOOST_INCLUDEDIR}")
+endif()
+if(DEFINED GTEST_LIB_DIR AND NOT "${GTEST_LIB_DIR}" STREQUAL "")
+    add_definitions(-DDSN_GTEST_LIB_DIR="${GTEST_LIB_DIR}")
+endif()
 
 set(MY_PROJ_NAME dsn.idl.tests)
 

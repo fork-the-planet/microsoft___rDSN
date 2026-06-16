@@ -135,12 +135,15 @@ void create_dir(const char* dir, bool &result)
 
 void rm_dir(const char* dir, bool &result)
 {
-#ifdef _WIN32
-    std::string cmd = std::string("rd /S /Q ") + file(dir);
-#else
-    std::string cmd = std::string("rm -rf ") + file(dir);
-#endif
-    execute(cmd, result);
+    const bool ret = dsn::utils::filesystem::remove_path(file(dir));
+    result = result && ret;
+}
+
+void cleanup_generated_project(bool &result)
+{
+    rm_dir("data", result);
+    rm_dir("builder", result);
+    rm_dir("src", result);
 }
 
 std::string get_generated_project_dsn_root()
@@ -169,6 +172,28 @@ std::string get_codegen_script()
     return file(combine(DSN_ROOT_DIR, script));
 }
 
+std::string get_boost_include_dir()
+{
+#ifdef DSN_BOOST_INCLUDEDIR
+    return file(DSN_BOOST_INCLUDEDIR);
+#else
+    return std::string();
+#endif
+}
+
+std::string run_generated_project_command(const std::string &cmd)
+{
+#if defined(__linux__)
+    std::string library_path = combine(get_generated_project_dsn_root(), "lib");
+#ifdef DSN_GTEST_LIB_DIR
+    library_path += ":" + file(DSN_GTEST_LIB_DIR);
+#endif
+    return "LD_LIBRARY_PATH=\"" + library_path + ":$LD_LIBRARY_PATH\" " + cmd;
+#else
+    return cmd;
+#endif
+}
+
 void cmake(Language lang, bool &result)
 {
     create_dir("builder", result);
@@ -180,6 +205,11 @@ void cmake(Language lang, bool &result)
     std::string cmake_cmd = std::string("cd builder && cmake ") + file("../src");
 #endif
     cmake_cmd += std::string(" -DDSN_ROOT=") + get_generated_project_dsn_root();
+    const std::string boost_include_dir = get_boost_include_dir();
+    if (!boost_include_dir.empty())
+    {
+        cmake_cmd += std::string(" -DBOOST_INCLUDEDIR=") + boost_include_dir;
+    }
     
     execute(cmake_cmd, result);
     if (!result)
@@ -205,18 +235,25 @@ void cmake(Language lang, bool &result)
             std::cerr << "Failed to build generated counter project with make." << std::endl;
             return;
         }
-        execute(file("builder/bin/counter/counter") + " " + file("builder/bin/counter/config.ini"), result);
+        execute(run_generated_project_command(
+                    file("builder/bin/counter/counter") + " " + file("builder/bin/counter/config.ini")),
+                result);
 #endif
     }
     else
     {
         execute(file("builder/bin/counter/counter.exe") + " " + file("builder/bin/counter/config.ini"), result);
     }
+    if (!result)
+    {
+        std::cerr << "Failed to run generated counter project." << std::endl;
+    }
 }
 
 bool test_code_generation(Language lang, IDL idl, Format format)
 {
     bool result = true;
+    cleanup_generated_project(result);
     std::string codegen_cmd = get_codegen_script()
         + std::string(" counter.")
         + (idl == idl_protobuf ? "proto" : "thrift")
@@ -236,6 +273,16 @@ bool test_code_generation(Language lang, IDL idl, Format format)
             "dsn_add_shared_library()",
             "dsn_add_executable()",
             result);
+        replace_in_file(
+            combine("src", "config.ini"),
+            "dsn.tools.nfs\ncounter\n\n[apps.server]\n",
+            "dsn.tools.nfs\n\n[apps.server]\n",
+            result);
+        replace_in_file(
+            combine("src", "config.ini"),
+            "pause_on_start = false\n",
+            "pause_on_start = false\ncli_local = false\ncli_remote = false\n",
+            result);
     } else
     {
         src_files.push_back("counter.main.cs");
@@ -245,13 +292,9 @@ bool test_code_generation(Language lang, IDL idl, Format format)
         copy_file(combine(combine(DSN_ROOT_DIR "/src/tests/idl/resources", src_root), i), file("src"), result);
     }
     cmake(lang, result);
-    rm_dir("data", result);
-    rm_dir("builder", result);
-    rm_dir("src", result);
-    //return result;
-
-    printf("TODO: idl test to be fixed\n");
-    return true;
+    bool tmp = true;
+    cleanup_generated_project(tmp);
+    return result;
 }
 
 template<typename T>
@@ -290,16 +333,16 @@ void test_thrift_basic_type_serialization(Format fmt)
     std::vector<bool> data_bool_t{true, false};
     thrift_basic_type_serialization_checker(data_bool_t, fmt);
 
-    std::vector<int8_t> data_int8_t{std::numeric_limits<int8_t>::min(), std::numeric_limits<int8_t>::max(), 0, 1 , -1, 13, -13};
+    std::vector<int8_t> data_int8_t{(std::numeric_limits<int8_t>::min)(), (std::numeric_limits<int8_t>::max)(), 0, 1 , -1, 13, -13};
     thrift_basic_type_serialization_checker(data_int8_t, fmt);
 
-    std::vector<int16_t> data_int16_t{std::numeric_limits<int16_t>::min(), std::numeric_limits<int16_t>::max(), 0, 1 , -1, 13, -13};
+    std::vector<int16_t> data_int16_t{(std::numeric_limits<int16_t>::min)(), (std::numeric_limits<int16_t>::max)(), 0, 1 , -1, 13, -13};
     thrift_basic_type_serialization_checker(data_int16_t, fmt);
 
-    std::vector<int32_t> data_int32_t{std::numeric_limits<int32_t>::min(), std::numeric_limits<int32_t>::max(), 0, 1 , -1, 13, -13};
+    std::vector<int32_t> data_int32_t{(std::numeric_limits<int32_t>::min)(), (std::numeric_limits<int32_t>::max)(), 0, 1 , -1, 13, -13};
     thrift_basic_type_serialization_checker(data_int32_t, fmt);
 
-    std::vector<int64_t> data_int64_t{std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max(), 0, 1 , -1, 13, -13};
+    std::vector<int64_t> data_int64_t{(std::numeric_limits<int64_t>::min)(), (std::numeric_limits<int64_t>::max)(), 0, 1 , -1, 13, -13};
     thrift_basic_type_serialization_checker(data_int32_t, fmt);
 
     std::vector<std::string> data_string_t{std::string("hello"), std::string("world"), std::string("")};
@@ -368,10 +411,10 @@ void test_thrift_generated_type_serialization(Format fmt)
     check_thrift_generated_type_serialization(item, fmt);
 
     item.bool_item = true;
-    item.byte_item = std::numeric_limits<int8_t>::max();
-    item.i16_item = std::numeric_limits<int16_t>::max();
-    item.i32_item = std::numeric_limits<int32_t>::max();
-    item.i64_item = std::numeric_limits<int64_t>::max();
+    item.byte_item = (std::numeric_limits<int8_t>::max)();
+    item.i16_item = (std::numeric_limits<int16_t>::max)();
+    item.i32_item = (std::numeric_limits<int32_t>::max)();
+    item.i64_item = (std::numeric_limits<int64_t>::max)();
     item.double_item = 123.321;
     item.string_item = "hello world";
     for (int i = 0; i < container_n; i++)
@@ -444,10 +487,10 @@ void test_protobuf_generated_type_serialization(Format fmt)
     check_protobuf_generated_type_serialization(item, fmt);
 
     item.set_bool_item(true);
-    item.set_int32_item(std::numeric_limits<int32_t>::max());
-    item.set_int64_item(std::numeric_limits<int64_t>::max());
-    item.set_uint32_item(std::numeric_limits<uint32_t>::max());
-    item.set_uint64_item(std::numeric_limits<uint64_t>::max());
+    item.set_int32_item((std::numeric_limits<int32_t>::max)());
+    item.set_int64_item((std::numeric_limits<int64_t>::max)());
+    item.set_uint32_item((std::numeric_limits<uint32_t>::max)());
+    item.set_uint64_item((std::numeric_limits<uint64_t>::max)());
     item.set_float_item(123.321);
     item.set_double_item(1234.4321);
     item.set_string_item("hello world");
