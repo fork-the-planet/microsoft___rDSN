@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # !!! This script should be run in dsn project root directory (../../).
 #
 # Shell Options:
@@ -17,7 +17,9 @@ GCOV_DIR="$ROOT/gcov_report"
 GCOV_TMP="$ROOT/.gcov_tmp"
 GCOV_PATTERN=`find $ROOT/include $ROOT/src -name '*.h' -o -name '*.cpp'`
 TIME=`date '+%Y-%m-%d %H:%M:%S%z'`
-CMAKE_OPTIONS="$CMAKE_OPTIONS -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++"
+CMAKE_C_COMPILER="${CC:-cc}"
+CMAKE_CXX_COMPILER="${CXX:-c++}"
+CMAKE_OPTIONS="$CMAKE_OPTIONS -DCMAKE_C_COMPILER=$CMAKE_C_COMPILER -DCMAKE_CXX_COMPILER=$CMAKE_CXX_COMPILER"
 MAKE_OPTIONS="$MAKE_OPTIONS -j$JOB_NUM"
 
 CBIN_DIR=$(dirname "$0")
@@ -102,7 +104,7 @@ do
     if [ -f "$dir/gtests" ]
     then
         pushd "$dir" >/dev/null
-        cat $dir/gtests | while read -r line || [ -n "$line" ]; do
+        while read -r line || [ -n "$line" ]; do
             echo "============ run unit tests in $dir with $line ============"
             rm -fr ./data
             $SVC_HOST $dir/$line
@@ -122,7 +124,7 @@ do
                 popd >/dev/null
                 exit -1
             fi
-        done
+        done < "$dir/gtests"
         popd >/dev/null
     fi    
 done
