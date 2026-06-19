@@ -20,6 +20,19 @@ if (WIN32)
     list (APPEND PROTOBUF_CMAKE_ARGS "-DWITH_CSHARP=ON;")
 endif ()
 
+set(PROTOBUF_CXX_FLAGS "")
+
+if (NOT WIN32)
+    set(PROTOBUF_CXX_FLAGS "${PROTOBUF_CXX_FLAGS} -Wno-unused-variable -Wno-unused-parameter -Wno-unused-but-set-variable -Wno-unused-const-variable -Wno-deprecated-declarations")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set(PROTOBUF_CXX_FLAGS "${PROTOBUF_CXX_FLAGS} -Wno-unused-private-field")
+    endif()
+endif ()
+
+if(PROTOBUF_CXX_FLAGS)
+    list (APPEND PROTOBUF_CMAKE_ARGS "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} ${PROTOBUF_CXX_FLAGS};")
+endif ()
+
 ExternalProject_Add(protobuf
     GIT_REPOSITORY ${target_url}
     GIT_TAG ${git_tag}
