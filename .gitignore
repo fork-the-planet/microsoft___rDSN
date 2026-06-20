@@ -3,6 +3,7 @@
 .kdev4/
 .zk_install/
 .vscode/
+.DS_Store
 
 bin/config.onecluster.ini
 bin/Windows/7z.dll

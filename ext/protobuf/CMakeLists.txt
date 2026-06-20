@@ -5,10 +5,15 @@ set(git_tag ${PROTOBUF_GIT_TAG})
 
 set(PROTOBUF_INSTALL_PREFIX "${PROJECT_BINARY_DIR}/ext/protobuf")
 
+if (NOT DEFINED BUILD_PROTOBUF_CSHARP)
+    set(BUILD_PROTOBUF_CSHARP OFF)
+endif ()
+
 set (PROTOBUF_CMAKE_ARGS 
     "-Wno-dev;"
     "-DCMAKE_SUPPRESS_DEVELOPER_WARNINGS=ON;"
     "-Dprotobuf_BUILD_TESTS=OFF;"
+    "-DWITH_CSHARP=${BUILD_PROTOBUF_CSHARP};"
     "-DCMAKE_INSTALL_PREFIX=${PROTOBUF_INSTALL_PREFIX};"
     "-DCMAKE_INSTALL_BINDIR=${PROTOBUF_INSTALL_PREFIX}/bin;"
     "-DCMAKE_INSTALL_LIBDIR=${PROTOBUF_INSTALL_PREFIX}/lib;"
@@ -16,13 +21,14 @@ set (PROTOBUF_CMAKE_ARGS
     "-DCMAKE_POSITION_INDEPENDENT_CODE=ON;"
 )
 
-if (WIN32)
-    list (APPEND PROTOBUF_CMAKE_ARGS "-DWITH_CSHARP=ON;")
-endif ()
-
 set(PROTOBUF_CXX_FLAGS "")
 
-if (NOT WIN32)
+if(WIN32)
+    list(APPEND PROTOBUF_CMAKE_ARGS
+        "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW;"
+        "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>;"
+    )
+else()
     set(PROTOBUF_CXX_FLAGS "${PROTOBUF_CXX_FLAGS} -Wno-unused-variable -Wno-unused-parameter -Wno-unused-but-set-variable -Wno-unused-const-variable -Wno-deprecated-declarations")
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         set(PROTOBUF_CXX_FLAGS "${PROTOBUF_CXX_FLAGS} -Wno-unused-private-field")

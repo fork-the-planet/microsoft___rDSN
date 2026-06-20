@@ -5,6 +5,10 @@ set(git_tag ${THRIFT_GIT_TAG})
 
 set(THRIFT_INSTALL_PREFIX "${PROJECT_BINARY_DIR}/ext/thrift")
 
+if (NOT DEFINED BUILD_THRIFT_CSHARP)
+    set(BUILD_THRIFT_CSHARP OFF)
+endif ()
+
 set(THRIFT_CMAKE_ARGS
     "-Wno-dev;"
     "-DCMAKE_SUPPRESS_DEVELOPER_WARNINGS=ON;"
@@ -32,27 +36,27 @@ endif()
 
 set(THRIFT_CXX_FLAGS "")
 
-if (NOT WIN32)
-    set(THRIFT_CXX_FLAGS "${THRIFT_CXX_FLAGS} -Wno-unused-variable -Wno-unused-parameter -Wno-unused-but-set-variable -Wno-unused-const-variable -Wno-deprecated-declarations")
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        set(THRIFT_CXX_FLAGS "${THRIFT_CXX_FLAGS} -Wno-unused-private-field")
-    endif()
-endif()
-
 if(DEFINED DSN_BOOST_HEADER_ONLY AND DSN_BOOST_HEADER_ONLY)
     set(THRIFT_CXX_FLAGS "${THRIFT_CXX_FLAGS} -DBOOST_ERROR_CODE_HEADER_ONLY")
 endif()
 
 if(WIN32)
+    set(THRIFT_CXX_FLAGS "${THRIFT_CXX_FLAGS} -DBOOST_CONFIG_SUPPRESS_OUTDATED_MESSAGE")
     list(APPEND THRIFT_CMAKE_ARGS
         "-DBUILD_COMPILER=OFF;"
-        "-DBUILD_CSHARP=ON;"
+        "-DBUILD_CSHARP=${BUILD_THRIFT_CSHARP};"
+        "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW;"
+        "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>;"
         "-DWITH_MT=ON;"
         "-DWITH_SHARED_LIB=OFF;"
         "-DBOOST_INCLUDEDIR=${BOOST_INCLUDEDIR};"
         "-DBOOST_LIBRARYDIR=${BOOST_LIBRARYDIR};"
     )
 else()
+    set(THRIFT_CXX_FLAGS "${THRIFT_CXX_FLAGS} -Wno-unused-variable -Wno-unused-parameter -Wno-unused-but-set-variable -Wno-unused-const-variable -Wno-deprecated-declarations")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set(THRIFT_CXX_FLAGS "${THRIFT_CXX_FLAGS} -Wno-unused-private-field")
+    endif()
     list(APPEND THRIFT_CMAKE_ARGS
         "-DBUILD_COMPILER=ON;"
         "-DWITH_STATIC_LIB=OFF;"
@@ -97,9 +101,9 @@ if (WIN32)
     STRING(REGEX REPLACE "/" "\\\\" WIN_BOOST_INCLUDE_DIR ${BOOST_INCLUDEDIR})
     STRING(REGEX REPLACE "/" "\\\\" WIN_INSTALL_BOOST_DIR ${CMAKE_INSTALL_PREFIX}/include/ext/boost)
 
-    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/install_boost.cmd.template" "${CMAKE_CURRENT_SOURCE_DIR}/install_boost.cmd")
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/install_boost.cmd.template" "${CMAKE_CURRENT_BINARY_DIR}/install_boost.cmd")
 
-    install(CODE "execute_process(COMMAND \"${CMAKE_CURRENT_SOURCE_DIR}/install_boost.cmd\")")
+    install(CODE "execute_process(COMMAND \"${CMAKE_CURRENT_BINARY_DIR}/install_boost.cmd\")")
 endif ()
 
 # Specify source dir
