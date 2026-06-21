@@ -98,8 +98,6 @@ namespace dsn
 
     task_ptr rpc::create_rpc_response_task(dsn_message_t request, clientlet* svc, empty_callback_t, int reply_thread_hash)
     {
-        task_ptr tsk = new safe_task_handle;
-        //do not add_ref here
         auto t = dsn_rpc_create_response_task(
             request,
             nullptr,
@@ -107,6 +105,13 @@ namespace dsn
             reply_thread_hash,
             svc ? svc->tracker() : nullptr
             );
+        if (t == nullptr)
+        {
+            return nullptr;
+        }
+
+        task_ptr tsk = new safe_task_handle;
+        //do not add_ref here
         tsk->set_task_info(t);
         return tsk;
     }
@@ -115,18 +120,23 @@ namespace dsn
     {
         task_ptr create_aio_task(dsn_task_code_t callback_code, clientlet* svc, empty_callback_t, int hash)
         {
-            task_ptr tsk = new safe_task_handle;
-            //do not add_ref here
             dsn_task_t t = dsn_file_create_aio_task(callback_code,
                 nullptr,
                 nullptr, hash, svc ? svc->tracker() : nullptr
                 );
+            if (t == nullptr)
+            {
+                return nullptr;
+            }
+
+            task_ptr tsk = new safe_task_handle;
+            //do not add_ref here
             tsk->set_task_info(t);
             return tsk;
         }
 
 
-        void copy_remote_files_impl(
+        error_code copy_remote_files_impl(
             ::dsn::rpc_address remote,
             const std::string& source_dir,
             const std::vector<std::string>& files,  // empty for all
@@ -137,7 +147,7 @@ namespace dsn
         {
             if (files.empty())
             {
-                dsn_file_copy_remote_directory(remote.c_addr(), source_dir.c_str(), dest_dir.c_str(),
+                return dsn_file_copy_remote_directory(remote.c_addr(), source_dir.c_str(), dest_dir.c_str(),
                     overwrite, native_task);
             }
             else
@@ -150,7 +160,7 @@ namespace dsn
                 }
                 *ptr = nullptr;
 
-                dsn_file_copy_remote_files(
+                return dsn_file_copy_remote_files(
                     remote.c_addr(), source_dir.c_str(), ptr_base,
                     dest_dir.c_str(), overwrite, native_task
                     );

@@ -48,6 +48,18 @@ TEST(core, dsn_error)
     ASSERT_STREQ("ERR_OK", dsn_error_to_string(ERR_OK));
 }
 
+TEST(core, dsn_error_invalid_parameters)
+{
+    const auto too_long_error_name = std::string(DSN_MAX_ERROR_CODE_NAME_LENGTH, 'e');
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_error_register(nullptr));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_error_register(""));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_error_register(too_long_error_name.c_str()));
+    ASSERT_STREQ("unknown", dsn_error_to_string(-1));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_error_from_string(nullptr, ERR_OK));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_error_from_string("", ERR_OK));
+}
+
 DEFINE_THREAD_POOL_CODE(THREAD_POOL_FOR_TEST)
 TEST(core, dsn_threadpool_code)
 {
@@ -64,9 +76,37 @@ TEST(core, dsn_threadpool_code)
     ASSERT_LT(0, dsn_threadpool_get_current_tid());
 }
 
+TEST(core, dsn_threadpool_code_invalid_parameters)
+{
+    ASSERT_EQ(THREAD_POOL_INVALID, dsn_threadpool_code_register(nullptr));
+    ASSERT_EQ(THREAD_POOL_INVALID, dsn_threadpool_code_register(""));
+    ASSERT_EQ(THREAD_POOL_INVALID,
+              dsn_threadpool_code_from_string(nullptr, THREAD_POOL_DEFAULT));
+    ASSERT_EQ(THREAD_POOL_INVALID,
+              dsn_threadpool_code_from_string("", THREAD_POOL_DEFAULT));
+}
+
 DEFINE_TASK_CODE(TASK_CODE_COMPUTE_FOR_TEST, TASK_PRIORITY_HIGH, THREAD_POOL_DEFAULT)
 DEFINE_TASK_CODE_AIO(TASK_CODE_AIO_FOR_TEST, TASK_PRIORITY_COMMON, THREAD_POOL_DEFAULT)
 DEFINE_TASK_CODE_RPC(TASK_CODE_RPC_FOR_TEST, TASK_PRIORITY_LOW, THREAD_POOL_DEFAULT)
+
+namespace
+{
+
+void noop_task_handler(void*) {}
+
+void noop_rpc_response_handler(dsn_error_t, dsn_message_t, dsn_message_t, void*) {}
+
+void noop_rpc_request_handler(dsn_message_t, void*) {}
+
+void noop_aio_handler(dsn_error_t, size_t, void*) {}
+
+void* noop_checker_create(const char*, dsn_app_info*, int) { return nullptr; }
+
+void noop_checker_apply(void*) {}
+
+} // anonymous namespace
+
 TEST(core, dsn_task_code)
 {
     dsn_task_type_t type;
@@ -122,6 +162,66 @@ TEST(core, dsn_task_code)
     dsn_task_code_set_priority(TASK_CODE_COMPUTE_FOR_TEST, TASK_PRIORITY_HIGH);
 }
 
+TEST(core, dsn_task_code_invalid_parameters)
+{
+    const auto too_long_task_name = std::string(DSN_MAX_TASK_CODE_NAME_LENGTH, 't');
+    dsn_task_type_t type = TASK_TYPE_COUNT;
+    dsn_task_priority_t priority = TASK_PRIORITY_COUNT;
+    dsn_threadpool_code_t pool = THREAD_POOL_INVALID;
+
+    ASSERT_EQ(TASK_CODE_INVALID, dsn_task_code_register(nullptr,
+                                                        TASK_TYPE_COMPUTE,
+                                                        TASK_PRIORITY_COMMON,
+                                                        THREAD_POOL_DEFAULT));
+    ASSERT_EQ(TASK_CODE_INVALID, dsn_task_code_register("",
+                                                        TASK_TYPE_COMPUTE,
+                                                        TASK_PRIORITY_COMMON,
+                                                        THREAD_POOL_DEFAULT));
+    ASSERT_EQ(TASK_CODE_INVALID, dsn_task_code_register(too_long_task_name.c_str(),
+                                                        TASK_TYPE_COMPUTE,
+                                                        TASK_PRIORITY_COMMON,
+                                                        THREAD_POOL_DEFAULT));
+    ASSERT_EQ(TASK_CODE_INVALID,
+              dsn_task_code_register("invalid_task_type",
+                                     TASK_TYPE_COUNT,
+                                     TASK_PRIORITY_COMMON,
+                                     THREAD_POOL_DEFAULT));
+    ASSERT_EQ(TASK_CODE_INVALID,
+              dsn_task_code_register("invalid_task_priority",
+                                     TASK_TYPE_COMPUTE,
+                                     TASK_PRIORITY_COUNT,
+                                     THREAD_POOL_DEFAULT));
+    ASSERT_EQ(TASK_CODE_INVALID,
+              dsn_task_code_register("invalid_task_pool",
+                                     TASK_TYPE_COMPUTE,
+                                     TASK_PRIORITY_COMMON,
+                                     THREAD_POOL_INVALID));
+    ASSERT_EQ(TASK_CODE_INVALID,
+              dsn_task_code_register("negative_task_pool",
+                                     TASK_TYPE_COMPUTE,
+                                     TASK_PRIORITY_COMMON,
+                                     static_cast<dsn_threadpool_code_t>(-1)));
+
+    dsn_task_code_query(TASK_CODE_INVALID, &type, &priority, &pool);
+    ASSERT_EQ(TASK_TYPE_COUNT, type);
+    ASSERT_EQ(TASK_PRIORITY_COUNT, priority);
+    ASSERT_EQ(THREAD_POOL_INVALID, pool);
+    dsn_task_code_set_threadpool(TASK_CODE_INVALID, THREAD_POOL_DEFAULT);
+    dsn_task_code_set_threadpool(TASK_CODE_COMPUTE_FOR_TEST, THREAD_POOL_INVALID);
+    dsn_task_code_set_threadpool(TASK_CODE_COMPUTE_FOR_TEST,
+                                 static_cast<dsn_threadpool_code_t>(-1));
+    dsn_task_code_set_priority(TASK_CODE_INVALID, TASK_PRIORITY_COMMON);
+    dsn_task_code_set_priority(TASK_CODE_COMPUTE_FOR_TEST, TASK_PRIORITY_COUNT);
+
+    ASSERT_STREQ("TASK_CODE_INVALID", dsn_task_code_to_string(TASK_CODE_INVALID));
+    ASSERT_STREQ("unknown", dsn_task_code_to_string(static_cast<dsn_task_code_t>(-1)));
+    ASSERT_EQ(TASK_CODE_INVALID, dsn_task_code_from_string(nullptr, TASK_CODE_COMPUTE_FOR_TEST));
+    ASSERT_EQ(TASK_CODE_INVALID, dsn_task_code_from_string("", TASK_CODE_COMPUTE_FOR_TEST));
+    ASSERT_STREQ("Unknown", dsn_task_type_to_string(TASK_TYPE_COUNT));
+    ASSERT_STREQ("Unknown", dsn_task_priority_to_string(TASK_PRIORITY_COUNT));
+    ASSERT_EQ(nullptr, dsn_task_queue_virtual_length_ptr(TASK_CODE_INVALID, 0));
+}
+
 TEST(core, dsn_config)
 {
     ASSERT_TRUE(dsn_config_get_value_bool("apps.client", "run", false, "client run"));
@@ -140,6 +240,61 @@ TEST(core, dsn_config)
     ASSERT_STREQ("count", buffers[0]);
 }
 
+TEST(core, dsn_config_invalid_parameters)
+{
+    const char* buffers[1];
+    int buffer_count = 1;
+    int invalid_buffer_count = -1;
+
+    ASSERT_STREQ("default", dsn_config_get_value_string(nullptr, "key", "default", ""));
+    ASSERT_STREQ("default", dsn_config_get_value_string("", "key", "default", ""));
+    ASSERT_STREQ("default", dsn_config_get_value_string("section", nullptr, "default", ""));
+    ASSERT_STREQ("default", dsn_config_get_value_string("section", "", "default", ""));
+    ASSERT_EQ(nullptr, dsn_config_get_value_string("section", "key", nullptr, ""));
+
+    ASSERT_TRUE(dsn_config_get_value_bool(nullptr, "key", true, ""));
+    ASSERT_TRUE(dsn_config_get_value_bool("", "key", true, ""));
+    ASSERT_TRUE(dsn_config_get_value_bool("section", nullptr, true, ""));
+    ASSERT_TRUE(dsn_config_get_value_bool("section", "", true, ""));
+
+    ASSERT_EQ(123u, dsn_config_get_value_uint64(nullptr, "key", 123, ""));
+    ASSERT_EQ(123u, dsn_config_get_value_uint64("", "key", 123, ""));
+    ASSERT_EQ(123u, dsn_config_get_value_uint64("section", nullptr, 123, ""));
+    ASSERT_EQ(123u, dsn_config_get_value_uint64("section", "", 123, ""));
+
+    ASSERT_EQ(1.5, dsn_config_get_value_double(nullptr, "key", 1.5, ""));
+    ASSERT_EQ(1.5, dsn_config_get_value_double("", "key", 1.5, ""));
+    ASSERT_EQ(1.5, dsn_config_get_value_double("section", nullptr, 1.5, ""));
+    ASSERT_EQ(1.5, dsn_config_get_value_double("section", "", 1.5, ""));
+
+    ASSERT_EQ(-1, dsn_config_get_all_sections(buffers, nullptr));
+    ASSERT_EQ(-1, dsn_config_get_all_sections(buffers, &invalid_buffer_count));
+    ASSERT_EQ(-1, dsn_config_get_all_sections(nullptr, &buffer_count));
+
+    ASSERT_EQ(-1, dsn_config_get_all_keys(nullptr, buffers, &buffer_count));
+    ASSERT_EQ(-1, dsn_config_get_all_keys("", buffers, &buffer_count));
+    ASSERT_EQ(-1, dsn_config_get_all_keys("section", buffers, nullptr));
+    invalid_buffer_count = -1;
+    ASSERT_EQ(-1, dsn_config_get_all_keys("section", buffers, &invalid_buffer_count));
+    buffer_count = 1;
+    ASSERT_EQ(-1, dsn_config_get_all_keys("section", nullptr, &buffer_count));
+
+    dsn_config_dump(nullptr);
+    dsn_config_dump("");
+}
+
+TEST(core, dsn_run_invalid_parameters)
+{
+    char arg0[] = "dsn";
+    char* null_argv[] = {arg0, nullptr};
+
+    dsn_run(-1, nullptr, false);
+    dsn_run(1, nullptr, false);
+    dsn_run(2, null_argv, false);
+    ASSERT_FALSE(dsn_run_config(nullptr, false));
+    ASSERT_FALSE(dsn_run_config("", false));
+}
+
 TEST(core, dsn_coredump)
 {
 }
@@ -148,8 +303,76 @@ TEST(core, dsn_crc32)
 {
 }
 
+TEST(core, dsn_crc_invalid_parameters)
+{
+    ASSERT_EQ(CRC_INVALID, dsn_crc32_compute(nullptr, 1, 0));
+    ASSERT_EQ(static_cast<uint64_t>(CRC_INVALID), dsn_crc64_compute(nullptr, 1, 0));
+}
+
 TEST(core, dsn_task)
 {
+}
+
+TEST(core, dsn_task_invalid_parameters)
+{
+    ASSERT_FALSE(dsn_task_is_running_inside(nullptr));
+    ASSERT_EQ(0, dsn_task_get_ref(nullptr));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_task_error(nullptr));
+    ASSERT_FALSE(dsn_task_call(nullptr, 0));
+    ASSERT_FALSE(dsn_task_set_delay(nullptr, 0));
+    ASSERT_FALSE(dsn_task_cancel(nullptr, false));
+    ASSERT_FALSE(dsn_task_wait_timeout(nullptr, 0));
+
+    bool finished = true;
+    ASSERT_FALSE(dsn_task_cancel2(nullptr, false, &finished));
+    ASSERT_FALSE(finished);
+
+    auto compute_task = dsn_task_create(TASK_CODE_COMPUTE_FOR_TEST, noop_task_handler, nullptr, 0);
+    ASSERT_NE(nullptr, compute_task);
+    dsn_task_add_ref(compute_task);
+    ASSERT_FALSE(dsn_task_call(compute_task, -1));
+    ASSERT_FALSE(dsn_task_set_delay(compute_task, -1));
+    dsn_task_release_ref(compute_task);
+
+    auto aio_task = dsn_file_create_aio_task(TASK_CODE_AIO_FOR_TEST, noop_aio_handler, nullptr, 0);
+    ASSERT_NE(nullptr, aio_task);
+    dsn_task_add_ref(aio_task);
+    ASSERT_FALSE(dsn_task_call(aio_task, 0));
+    dsn_task_release_ref(aio_task);
+}
+
+TEST(core, dsn_task_create_invalid_parameters)
+{
+    ASSERT_EQ(nullptr, dsn_task_create(TASK_CODE_INVALID, noop_task_handler, nullptr, 0));
+    ASSERT_EQ(nullptr, dsn_task_create(TASK_CODE_COMPUTE_FOR_TEST, nullptr, nullptr, 0));
+    ASSERT_EQ(nullptr, dsn_task_create_ex(TASK_CODE_INVALID, noop_task_handler, nullptr, nullptr, 0));
+    ASSERT_EQ(nullptr, dsn_task_create_ex(TASK_CODE_COMPUTE_FOR_TEST, nullptr, nullptr, nullptr, 0));
+    ASSERT_EQ(nullptr, dsn_task_create_timer(TASK_CODE_INVALID, noop_task_handler, nullptr, 0, 1));
+    ASSERT_EQ(nullptr, dsn_task_create_timer(TASK_CODE_COMPUTE_FOR_TEST, nullptr, nullptr, 0, 1));
+    ASSERT_EQ(nullptr, dsn_task_create_timer(TASK_CODE_COMPUTE_FOR_TEST, noop_task_handler, nullptr, 0, -1));
+    ASSERT_EQ(nullptr, dsn_task_create_timer_ex(TASK_CODE_INVALID,
+                                                noop_task_handler,
+                                                nullptr,
+                                                nullptr,
+                                                0,
+                                                1));
+    ASSERT_EQ(nullptr, dsn_task_create_timer_ex(TASK_CODE_COMPUTE_FOR_TEST,
+                                                nullptr,
+                                                nullptr,
+                                                nullptr,
+                                                0,
+                                                1));
+    ASSERT_EQ(nullptr, dsn_task_create_timer_ex(TASK_CODE_COMPUTE_FOR_TEST,
+                                                noop_task_handler,
+                                                nullptr,
+                                                nullptr,
+                                                0,
+                                                -1));
+    ASSERT_EQ(nullptr, dsn_task_tracker_create(0));
+    ASSERT_EQ(nullptr, dsn_task_tracker_create(-1));
+    dsn_task_tracker_cancel_all(nullptr);
+    dsn_task_tracker_destroy(nullptr);
+    dsn_task_tracker_wait_all(nullptr);
 }
 
 TEST(core, dsn_exlock)
@@ -178,6 +401,35 @@ TEST(core, dsn_exlock)
         dsn_exlock_unlock(l);
         dsn_exlock_destroy(l);
     }
+}
+
+TEST(core, dsn_sync_invalid_parameters)
+{
+    dsn_exlock_destroy(nullptr);
+    dsn_exlock_lock(nullptr);
+    ASSERT_FALSE(dsn_exlock_try_lock(nullptr));
+    dsn_exlock_unlock(nullptr);
+
+    dsn_rwlock_nr_destroy(nullptr);
+    dsn_rwlock_nr_lock_read(nullptr);
+    dsn_rwlock_nr_unlock_read(nullptr);
+    ASSERT_FALSE(dsn_rwlock_nr_try_lock_read(nullptr));
+    dsn_rwlock_nr_lock_write(nullptr);
+    dsn_rwlock_nr_unlock_write(nullptr);
+    ASSERT_FALSE(dsn_rwlock_nr_try_lock_write(nullptr));
+
+    ASSERT_EQ(nullptr, dsn_semaphore_create(-1));
+    dsn_semaphore_destroy(nullptr);
+    dsn_semaphore_signal(nullptr, 1);
+    dsn_semaphore_signal(nullptr, 0);
+    dsn_semaphore_wait(nullptr);
+    ASSERT_FALSE(dsn_semaphore_wait_timeout(nullptr, 0));
+
+    auto semaphore = dsn_semaphore_create(0);
+    ASSERT_NE(nullptr, semaphore);
+    dsn_semaphore_signal(semaphore, 0);
+    dsn_semaphore_signal(semaphore, -1);
+    dsn_semaphore_destroy(semaphore);
 }
 
 TEST(core, dsn_rwlock)
@@ -210,11 +462,301 @@ TEST(core, dsn_rpc)
 {
 }
 
+TEST(core, dsn_rpc_registration_invalid_parameters)
+{
+    ASSERT_FALSE(dsn_rpc_register_handler(TASK_CODE_INVALID,
+                                          "invalid_code",
+                                          noop_rpc_request_handler,
+                                          nullptr,
+                                          dsn_gpid()));
+    ASSERT_FALSE(dsn_rpc_register_handler(TASK_CODE_RPC_FOR_TEST,
+                                          nullptr,
+                                          noop_rpc_request_handler,
+                                          nullptr,
+                                          dsn_gpid()));
+    ASSERT_FALSE(dsn_rpc_register_handler(TASK_CODE_RPC_FOR_TEST,
+                                          "",
+                                          noop_rpc_request_handler,
+                                          nullptr,
+                                          dsn_gpid()));
+    ASSERT_FALSE(dsn_rpc_register_handler(TASK_CODE_RPC_FOR_TEST,
+                                          "null_callback",
+                                          nullptr,
+                                          nullptr,
+                                          dsn_gpid()));
+    ASSERT_EQ(nullptr, dsn_rpc_unregiser_handler(TASK_CODE_INVALID, dsn_gpid()));
+}
+
+TEST(core, dsn_rpc_dispatch_invalid_parameters)
+{
+    const dsn_address_t invalid_address = {};
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_rpc_call(invalid_address, nullptr));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_rpc_call_one_way(invalid_address, nullptr));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_rpc_reply(nullptr, ERR_OK));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_rpc_forward(nullptr, invalid_address));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_rpc_enqueue_response(nullptr, ERR_OK, nullptr));
+
+    auto request = dsn_msg_create_request(TASK_CODE_RPC_FOR_TEST, 100, 0, 0);
+    ASSERT_NE(nullptr, request);
+    dsn_msg_add_ref(request);
+
+    ASSERT_EQ(nullptr, dsn_rpc_create_response_task_ex(nullptr,
+                                                       noop_rpc_response_handler,
+                                                       nullptr,
+                                                       nullptr,
+                                                       0,
+                                                       nullptr));
+    ASSERT_EQ(nullptr, dsn_rpc_call_wait(invalid_address, nullptr));
+    ASSERT_EQ(nullptr, dsn_rpc_call_wait(invalid_address, request));
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_rpc_call_one_way(invalid_address, request));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_rpc_forward(request, invalid_address));
+
+    auto rpc_response_task =
+        dsn_rpc_create_response_task(request, noop_rpc_response_handler, nullptr, 0);
+    ASSERT_NE(nullptr, rpc_response_task);
+    dsn_task_add_ref(rpc_response_task);
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_rpc_call(invalid_address, rpc_response_task));
+    dsn_task_release_ref(rpc_response_task);
+
+    auto compute_task = dsn_task_create(TASK_CODE_COMPUTE_FOR_TEST, noop_task_handler, nullptr, 0);
+    ASSERT_NE(nullptr, compute_task);
+    dsn_task_add_ref(compute_task);
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_rpc_call(invalid_address, compute_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_rpc_enqueue_response(compute_task, ERR_OK, nullptr));
+    ASSERT_EQ(nullptr, dsn_rpc_get_response(compute_task));
+    dsn_task_release_ref(compute_task);
+
+    ASSERT_EQ(nullptr, dsn_rpc_get_response(nullptr));
+    dsn_msg_release_ref(request);
+}
+
+TEST(core, dsn_hosted_app_invalid_parameters)
+{
+    auto fake_app_context = reinterpret_cast<void*>(1);
+    void* downcall_context = nullptr;
+    void* callback_context = nullptr;
+    dsn_gpid invalid_app_id = {};
+    invalid_app_id.u.app_id = 0;
+    invalid_app_id.u.partition_index = 1;
+    dsn_gpid invalid_partition_index = {};
+    invalid_partition_index.u.app_id = 1;
+    invalid_partition_index.u.partition_index = -1;
+    dsn_gpid valid_gpid = {};
+    valid_gpid.u.app_id = 1;
+    valid_gpid.u.partition_index = 0;
+    char* null_argv[] = {nullptr};
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_hosted_app_create(nullptr,
+                                    valid_gpid,
+                                    "data",
+                                    &downcall_context,
+                                    &callback_context));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_hosted_app_create("",
+                                    valid_gpid,
+                                    "data",
+                                    &downcall_context,
+                                    &callback_context));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_hosted_app_create("test",
+                                    invalid_app_id,
+                                    "data",
+                                    &downcall_context,
+                                    &callback_context));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_hosted_app_create("test",
+                                    invalid_partition_index,
+                                    "data",
+                                    &downcall_context,
+                                    &callback_context));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_hosted_app_create("test",
+                                    valid_gpid,
+                                    nullptr,
+                                    &downcall_context,
+                                    &callback_context));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_hosted_app_create("test",
+                                    valid_gpid,
+                                    "",
+                                    &downcall_context,
+                                    &callback_context));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_hosted_app_create("test", valid_gpid, "data", nullptr, &callback_context));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_hosted_app_create("test", valid_gpid, "data", &downcall_context, nullptr));
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_hosted_app_start(nullptr, 0, nullptr));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_hosted_app_start(fake_app_context, -1, nullptr));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_hosted_app_start(fake_app_context, 1, nullptr));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_hosted_app_start(fake_app_context, 1, null_argv));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_hosted_app_destroy(nullptr, false));
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_hosted_app_commit_rpc_request(nullptr, nullptr, false));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_hosted_app_commit_rpc_request(fake_app_context, nullptr, false));
+}
+
+TEST(core, dsn_app_registration_invalid_parameters)
+{
+    dsn_app_callbacks callbacks = {};
+
+    ASSERT_FALSE(dsn_register_app(nullptr));
+    dsn_app app = {};
+    ASSERT_FALSE(dsn_register_app(&app));
+    memset(app.type_name, 'a', sizeof(app.type_name));
+    ASSERT_FALSE(dsn_register_app(&app));
+    memset(app.type_name, 0, sizeof(app.type_name));
+    snprintf(app.type_name, sizeof(app.type_name), "%s", "dsn_app_reg_test");
+    ASSERT_TRUE(dsn_register_app(&app));
+    ASSERT_FALSE(dsn_register_app(&app));
+
+    ASSERT_FALSE(dsn_get_app_callbacks(nullptr, &callbacks));
+    ASSERT_FALSE(dsn_get_app_callbacks("", &callbacks));
+    ASSERT_FALSE(dsn_get_app_callbacks("test", nullptr));
+    ASSERT_FALSE(dsn_register_app_checker(nullptr, noop_checker_create, noop_checker_apply));
+    ASSERT_FALSE(dsn_register_app_checker("", noop_checker_create, noop_checker_apply));
+    ASSERT_FALSE(dsn_register_app_checker("invalid_checker", nullptr, noop_checker_apply));
+    ASSERT_FALSE(dsn_register_app_checker("invalid_checker", noop_checker_create, nullptr));
+}
+
 struct aio_result
 {
     dsn_error_t err;
     size_t sz;
 };
+
+TEST(core, dsn_file_dispatch_invalid_parameters)
+{
+    auto fake_file = reinterpret_cast<dsn_handle_t>(1);
+    char buffer[16];
+    dsn_file_buffer_t valid_buffers[] = {{buffer, static_cast<int>(sizeof(buffer))}};
+    const char* source_files[] = {"command.txt", nullptr};
+    const auto remote = dsn_address_build("localhost", 20101);
+    const dsn_address_t invalid_address = {};
+
+    auto aio_task = dsn_file_create_aio_task(TASK_CODE_AIO_FOR_TEST, noop_aio_handler, nullptr, 0);
+    ASSERT_NE(nullptr, aio_task);
+    dsn_task_add_ref(aio_task);
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_read(nullptr, buffer, sizeof(buffer), 0, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_read(fake_file, nullptr, sizeof(buffer), 0, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_read(fake_file, buffer, -1, 0, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_read(fake_file, buffer, sizeof(buffer), 0, nullptr));
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_write(nullptr, buffer, sizeof(buffer), 0, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_write(fake_file, nullptr, sizeof(buffer), 0, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_write(fake_file, buffer, -1, 0, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_write(fake_file, buffer, sizeof(buffer), 0, nullptr));
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_write_vector(nullptr, valid_buffers, 1, 0, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_write_vector(fake_file, nullptr, 1, 0, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_write_vector(fake_file, valid_buffers, 0, 0, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_write_vector(fake_file, valid_buffers, -1, 0, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_write_vector(fake_file, valid_buffers, 1, 0, nullptr));
+
+    if (task::get_current_disk() != nullptr)
+    {
+        dsn_file_buffer_t negative_size_buffers[] = {{buffer, -1}};
+        dsn_file_buffer_t null_data_buffers[] = {{nullptr, static_cast<int>(sizeof(buffer))}};
+        ASSERT_EQ(ERR_INVALID_PARAMETERS,
+                  dsn_file_write_vector(fake_file, negative_size_buffers, 1, 0, aio_task));
+        ASSERT_EQ(ERR_INVALID_PARAMETERS,
+                  dsn_file_write_vector(fake_file, null_data_buffers, 1, 0, aio_task));
+    }
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_directory(invalid_address, ".", ".", false, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_directory(remote, nullptr, ".", false, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_directory(remote, "", ".", false, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_directory(remote, ".", nullptr, false, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_directory(remote, ".", "", false, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_directory(remote, ".", ".", false, nullptr));
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_files(invalid_address, ".", source_files, ".", false, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_files(remote, nullptr, source_files, ".", false, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_files(remote, "", source_files, ".", false, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_files(remote, ".", nullptr, ".", false, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_files(remote, ".", source_files, nullptr, false, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_files(remote, ".", source_files, "", false, aio_task));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS,
+              dsn_file_copy_remote_files(remote, ".", source_files, ".", false, nullptr));
+
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_task_enqueue(nullptr, ERR_OK, 0));
+
+    auto compute_task = dsn_task_create(TASK_CODE_COMPUTE_FOR_TEST, noop_task_handler, nullptr, 0);
+    ASSERT_NE(nullptr, compute_task);
+    dsn_task_add_ref(compute_task);
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_task_enqueue(compute_task, ERR_OK, 0));
+    dsn_task_release_ref(compute_task);
+
+    dsn_task_release_ref(aio_task);
+}
+
+TEST(core, dsn_file_handle_invalid_parameters)
+{
+    ASSERT_EQ(nullptr, dsn_file_open(nullptr, O_RDONLY, 0));
+    ASSERT_EQ(nullptr, dsn_file_open("", O_RDONLY, 0));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_close(nullptr));
+    ASSERT_EQ(ERR_INVALID_PARAMETERS, dsn_file_flush(nullptr));
+    ASSERT_EQ(nullptr, dsn_file_native_handle(nullptr));
+    ASSERT_EQ(nullptr, dsn_file_create_aio_task(TASK_CODE_INVALID, noop_aio_handler, nullptr, 0));
+    ASSERT_EQ(nullptr,
+              dsn_file_create_aio_task_ex(TASK_CODE_INVALID,
+                                          noop_aio_handler,
+                                          nullptr,
+                                          nullptr,
+                                          0));
+    ASSERT_EQ(static_cast<size_t>(-1), dsn_file_get_io_size(nullptr));
+
+    auto compute_task = dsn_task_create(TASK_CODE_COMPUTE_FOR_TEST, noop_task_handler, nullptr, 0);
+    ASSERT_NE(nullptr, compute_task);
+    dsn_task_add_ref(compute_task);
+    ASSERT_EQ(static_cast<size_t>(-1), dsn_file_get_io_size(compute_task));
+    dsn_task_release_ref(compute_task);
+}
+
+TEST(core, dsn_app_info_invalid_parameters)
+{
+    dsn_gpid invalid_app_id = {};
+    invalid_app_id.u.app_id = 0;
+    invalid_app_id.u.partition_index = 1;
+    dsn_gpid invalid_partition_index = {};
+    invalid_partition_index.u.app_id = 1;
+    invalid_partition_index.u.partition_index = -1;
+
+    ASSERT_FALSE(dsn_mimic_app(nullptr, 1));
+    ASSERT_FALSE(dsn_mimic_app("", 1));
+    ASSERT_FALSE(dsn_mimic_app("client", 0));
+    ASSERT_FALSE(dsn_get_current_app_info(nullptr));
+    ASSERT_EQ(-1, dsn_get_all_apps(nullptr, 1));
+    dsn_app_info apps[1];
+    ASSERT_EQ(-1, dsn_get_all_apps(apps, -1));
+    ASSERT_EQ(nullptr, dsn_get_app_data_dir(invalid_app_id));
+    ASSERT_EQ(nullptr, dsn_get_app_data_dir(invalid_partition_index));
+    ASSERT_EQ(nullptr, dsn_get_app_info_ptr(invalid_app_id));
+    ASSERT_EQ(nullptr, dsn_get_app_info_ptr(invalid_partition_index));
+}
+
 TEST(core, dsn_file)
 {
     // if in dsn_mimic_app() and disk_io_mode == IOE_PER_QUEUE
@@ -244,7 +786,7 @@ TEST(core, dsn_file)
         dsn_task_add_ref(tin);
         ASSERT_NE(nullptr, tin);
         ASSERT_EQ(1, dsn_task_get_ref(tin));
-        dsn_file_read(fin, buffer, 1024, offset, tin);
+        ASSERT_EQ(ERR_OK, dsn_file_read(fin, buffer, 1024, offset, tin));
         dsn_task_wait(tin);
         ASSERT_EQ(rin.err, dsn_task_error(tin));
         if (rin.err != ERR_OK)
@@ -272,7 +814,7 @@ TEST(core, dsn_file)
             &rout, 0);
         dsn_task_add_ref(tout);
         ASSERT_NE(nullptr, tout);
-        dsn_file_write(fout, buffer, rin.sz, offset, tout);
+        ASSERT_EQ(ERR_OK, dsn_file_write(fout, buffer, rin.sz, offset, tout));
         dsn_task_wait(tout);
         ASSERT_EQ(ERR_OK, rout.err);
         ASSERT_EQ(ERR_OK, dsn_task_error(tout));
@@ -331,8 +873,8 @@ TEST(core, dsn_nfs)
                 &r, 0);
         dsn_task_add_ref(t);
         ASSERT_NE(nullptr, t);
-        dsn_file_copy_remote_files(dsn_address_build("localhost", 20101),
-                ".", files, "nfs_test_dir", false, t);
+        ASSERT_EQ(ERR_OK, dsn_file_copy_remote_files(dsn_address_build("localhost", 20101),
+                ".", files, "nfs_test_dir", false, t));
         ASSERT_TRUE(dsn_task_wait_timeout(t, 20000));
         ASSERT_EQ(r.err, dsn_task_error(t));
         ASSERT_EQ(ERR_OK, r.err);
@@ -373,8 +915,8 @@ TEST(core, dsn_nfs)
                 &r, 0);
         dsn_task_add_ref(t);
         ASSERT_NE(nullptr, t);
-        dsn_file_copy_remote_files(dsn_address_build("localhost", 20101),
-                ".", files, "nfs_test_dir", true, t);
+        ASSERT_EQ(ERR_OK, dsn_file_copy_remote_files(dsn_address_build("localhost", 20101),
+                ".", files, "nfs_test_dir", true, t));
         ASSERT_TRUE(dsn_task_wait_timeout(t, 20000));
         ASSERT_EQ(r.err, dsn_task_error(t));
         ASSERT_EQ(ERR_OK, r.err);
@@ -401,8 +943,8 @@ TEST(core, dsn_nfs)
                 &r, 0);
         dsn_task_add_ref(t);
         ASSERT_NE(nullptr, t);
-        dsn_file_copy_remote_directory(dsn_address_build("localhost", 20101),
-                "nfs_test_dir", "nfs_test_dir_copy", false, t);
+        ASSERT_EQ(ERR_OK, dsn_file_copy_remote_directory(dsn_address_build("localhost", 20101),
+                "nfs_test_dir", "nfs_test_dir_copy", false, t));
         ASSERT_TRUE(dsn_task_wait_timeout(t, 20000));
         ASSERT_EQ(r.err, dsn_task_error(t));
         ASSERT_EQ(ERR_OK, r.err);
@@ -478,4 +1020,3 @@ TEST(core, dsn_system)
         ASSERT_EQ(app_count, count);
     }
 }
-

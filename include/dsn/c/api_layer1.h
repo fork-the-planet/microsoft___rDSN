@@ -234,8 +234,9 @@ extern DSN_API bool        dsn_task_cancel(dsn_task_t task, bool wait_until_fini
 
  \param task                the task handle
  \param delay_ms            the delay milliseconds for a task
+ \return true if the delay is set, false if the parameters are invalid.
  */
-extern DSN_API void        dsn_task_set_delay(dsn_task_t task, int delay_ms);
+extern DSN_API bool        dsn_task_set_delay(dsn_task_t task, int delay_ms);
 
 /*!
  cancel a task
@@ -432,8 +433,9 @@ extern DSN_API dsn_task_t  dsn_task_create_timer_ex(
 
  \param task                the task handle
  \param delay_milliseconds  delay time before its execution
+ \return true if the task is enqueued, false if the parameters are invalid.
  */
-extern DSN_API void        dsn_task_call(
+extern DSN_API bool        dsn_task_call(
                             dsn_task_t task,                                 
                             int delay_milliseconds DEFAULT(0)
                             );
@@ -733,8 +735,9 @@ inline void dsn_address_size_checker()
  \param msg  the message handle
  \param opts options to be set in the message
  \param mask the mask composed using e.g., DSN_MSGM_TIMEOUT above to specify what to set
+ \return true if the options are set, false if the parameters are invalid.
  */
-extern DSN_API void          dsn_msg_set_options(
+extern DSN_API bool          dsn_msg_set_options(
                                 dsn_message_t msg,
                                 dsn_msg_options_t *opts,
                                 uint32_t mask
@@ -745,13 +748,17 @@ extern DSN_API void          dsn_msg_set_options(
 
  \param msg  the message handle
  \param opts options to be get
+ \return true if the options are returned, false if the parameters are invalid.
  */
-extern DSN_API void         dsn_msg_get_options(
+extern DSN_API bool         dsn_msg_get_options(
                                 dsn_message_t msg,
                                 /*out*/ dsn_msg_options_t* opts
                                 );
 
-DSN_API void dsn_msg_set_serailize_format(dsn_message_t msg, dsn_msg_serialize_format fmt);
+/*! set the message serialization format.
+    \return true if the format is set, false if the parameters are invalid.
+ */
+DSN_API bool dsn_msg_set_serailize_format(dsn_message_t msg, dsn_msg_serialize_format fmt);
 
 DSN_API dsn_msg_serialize_format dsn_msg_get_serialize_format(dsn_message_t msg);
 
@@ -780,16 +787,19 @@ extern DSN_API dsn_task_code_t dsn_msg_task_code(dsn_message_t msg);
  \param ptr      *ptr returns the writable memory pointer
  \param size     *size returns the writable memory buffer size
  \param min_size *size must >= min_size
+ \return true if a write buffer is returned, false if the parameters are invalid.
  */
-extern DSN_API void          dsn_msg_write_next(
+extern DSN_API bool          dsn_msg_write_next(
                                 dsn_message_t msg, 
                                 /*out*/ void** ptr, 
                                 /*out*/ size_t* size, 
                                 size_t min_size
                                 );
 
-/*! commit the write buffer after the message content is written with the real written size */
-extern DSN_API void          dsn_msg_write_commit(dsn_message_t msg, size_t size);
+/*! commit the write buffer after the message content is written with the real written size.
+    \return true if the buffer is committed, false if the parameters are invalid.
+ */
+extern DSN_API bool          dsn_msg_write_commit(dsn_message_t msg, size_t size);
 
 /*!
  get message read buffer
@@ -808,8 +818,9 @@ extern DSN_API bool          dsn_msg_read_next(
 
 /*! commit the read buffer after the message content is read with the real read size,
     it is possible to use a different size to allow duplicated or skipped read in the message.
+    \return true if the buffer is committed, false if the parameters are invalid.
  */
-extern DSN_API void          dsn_msg_read_commit(dsn_message_t msg, size_t size);
+extern DSN_API bool          dsn_msg_read_commit(dsn_message_t msg, size_t size);
 
 /*@}*/
 
@@ -835,11 +846,15 @@ extern DSN_API void*         dsn_rpc_unregiser_handler(
                                 dsn_gpid gpid DEFAULT(dsn_gpid())
                                 );
 
-/*! reply with a response which is created using dsn_msg_create_response */
-extern DSN_API void          dsn_rpc_reply(dsn_message_t response, dsn_error_t err DEFAULT(0));
+/*! reply with a response which is created using dsn_msg_create_response.
+    \return ERR_OK if the reply is submitted, otherwise the submission error code.
+ */
+extern DSN_API dsn_error_t   dsn_rpc_reply(dsn_message_t response, dsn_error_t err DEFAULT(0));
 
-/*! forward the request to another server instead */
-extern DSN_API void          dsn_rpc_forward(dsn_message_t request, dsn_address_t addr);
+/*! forward the request to another server instead.
+    \return ERR_OK if the forward request is submitted, otherwise the submission error code.
+ */
+extern DSN_API dsn_error_t   dsn_rpc_forward(dsn_message_t request, dsn_address_t addr);
 
 
 /*@}*/
@@ -895,8 +910,10 @@ extern DSN_API dsn_task_t    dsn_rpc_create_response_task_ex(
                                 dsn_task_tracker_t tracker DEFAULT(nullptr)
                                 );
 
-/*! client invokes the RPC call */
-extern DSN_API void          dsn_rpc_call(
+/*! client invokes the RPC call.
+    \return ERR_OK if the call is submitted, otherwise the submission error code.
+ */
+extern DSN_API dsn_error_t   dsn_rpc_call(
                                 dsn_address_t server,
                                 dsn_task_t rpc_call
                                 );
@@ -910,8 +927,10 @@ extern DSN_API dsn_message_t dsn_rpc_call_wait(
                                 dsn_message_t request
                                 );
 
-/*! one-way RPC from client, no rpc response is expected */
-extern DSN_API void          dsn_rpc_call_one_way(
+/*! one-way RPC from client, no rpc response is expected.
+    \return ERR_OK if the call is submitted, otherwise the submission error code.
+ */
+extern DSN_API dsn_error_t   dsn_rpc_call_one_way(
                                 dsn_address_t server, 
                                 dsn_message_t request
                                 );
@@ -922,10 +941,12 @@ extern DSN_API void          dsn_rpc_call_one_way(
 */
 extern DSN_API dsn_message_t dsn_rpc_get_response(dsn_task_t rpc_call);
 
-/*! this is to mimic a response is received when no real rpc is called */
-extern DSN_API void          dsn_rpc_enqueue_response(
-                                dsn_task_t rpc_call, 
-                                dsn_error_t err, 
+/*! enqueue an RPC response task.
+    \return ERR_OK if the response is enqueued, otherwise the submission error code.
+ */
+extern DSN_API dsn_error_t   dsn_rpc_enqueue_response(
+                                dsn_task_t rpc_call,
+                                dsn_error_t err,
                                 dsn_message_t response
                                 );
 
@@ -1033,8 +1054,9 @@ extern DSN_API dsn_task_t   dsn_file_create_aio_task_ex(
  \param count  byte size of the read buffer
  \param offset offset in the file to start reading
  \param cb     callback aio task to be executed on completion
+ \return ERR_OK if the read request is submitted, otherwise the submission error code.
  */
-extern DSN_API void         dsn_file_read(
+extern DSN_API dsn_error_t  dsn_file_read(
                                 dsn_handle_t file, 
                                 char* buffer, 
                                 int count, 
@@ -1050,8 +1072,9 @@ extern DSN_API void         dsn_file_read(
  \param count  byte size of the to-be-written content
  \param offset offset in the file to start write
  \param cb     callback aio task to be executed on completion
+ \return ERR_OK if the write request is submitted, otherwise the submission error code.
  */
-extern DSN_API void         dsn_file_write(
+extern DSN_API dsn_error_t  dsn_file_write(
                                 dsn_handle_t file, 
                                 const char* buffer, 
                                 int count, 
@@ -1067,8 +1090,9 @@ extern DSN_API void         dsn_file_write(
  \param buffer_count  number of write buffers
  \param offset        offset in the file to start write
  \param cb            callback aio task to be executed on completion
+ \return ERR_OK if the write request is submitted, otherwise the submission error code.
  */
-extern DSN_API void         dsn_file_write_vector(
+extern DSN_API dsn_error_t  dsn_file_write_vector(
                                 dsn_handle_t file,
                                 const dsn_file_buffer_t* buffers,
                                 int buffer_count,
@@ -1084,8 +1108,9 @@ extern DSN_API void         dsn_file_write_vector(
  \param dest_dir   destination dir on local server
  \param overwrite  true to overwrite, false to preserve.
  \param cb         callback aio task to be executed on completion
+ \return ERR_OK if the copy request is submitted, otherwise the submission error code.
  */
-extern DSN_API void         dsn_file_copy_remote_directory(
+extern DSN_API dsn_error_t  dsn_file_copy_remote_directory(
                                 dsn_address_t remote, 
                                 const char* source_dir, 
                                 const char* dest_dir,
@@ -1103,8 +1128,9 @@ extern DSN_API void         dsn_file_copy_remote_directory(
  \param dest_dir     destination dir on local server
  \param overwrite    true to overwrite, false to preserve.
  \param cb           callback aio task to be executed on completion
+ \return ERR_OK if the copy request is submitted, otherwise the submission error code.
  */
-extern DSN_API void         dsn_file_copy_remote_files(
+extern DSN_API dsn_error_t  dsn_file_copy_remote_files(
                                 dsn_address_t remote,
                                 const char* source_dir, 
                                 const char** source_files, 
@@ -1116,8 +1142,10 @@ extern DSN_API void         dsn_file_copy_remote_files(
 /*! get read/written io size for the given aio task */
 extern DSN_API size_t       dsn_file_get_io_size(dsn_task_t cb_task);
 
-/*! mimic io completion when no io operation is really issued */
-extern DSN_API void         dsn_file_task_enqueue(
+/*! mimic io completion when no io operation is really issued.
+    \return ERR_OK if the aio task is enqueued, otherwise the submission error code.
+ */
+extern DSN_API dsn_error_t  dsn_file_task_enqueue(
                                 dsn_task_t cb_task, 
                                 dsn_error_t err, 
                                 size_t size

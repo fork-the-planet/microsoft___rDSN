@@ -33,6 +33,8 @@
  *     xxxx-xx-xx, author, fix bug about xxx
  */
 
+# include <dsn/cpp/rpc_stream.h>
+# include <dsn/cpp/serialization.h>
 # include <dsn/tool-api/rpc_message.h>
 # include <gtest/gtest.h>
 # include "transient_memory.h"
@@ -185,7 +187,7 @@ TEST(core, message_ex)
         opts.context.context = 444;
         opts.gpid.value = 333;
 
-        dsn_msg_set_options(request, &opts, DSN_MSGM_CONTEXT | DSN_MSGM_VNID);
+        ASSERT_TRUE(dsn_msg_set_options(request, &opts, DSN_MSGM_CONTEXT | DSN_MSGM_VNID));
         message_ex* m = (message_ex*)request;
         m->header->from_address = rpc_address("127.0.0.1", 8080);
         m->to_address = rpc_address("127.0.0.1", 9090);
@@ -206,9 +208,9 @@ TEST(core, message_ex)
         void* ptr;
         size_t sz;
 
-        dsn_msg_write_next(request, &ptr, &sz, data_size);
+        ASSERT_TRUE(dsn_msg_write_next(request, &ptr, &sz, data_size));
         memcpy(ptr, data, data_size);
-        dsn_msg_write_commit(request, data_size);
+        ASSERT_TRUE(dsn_msg_write_commit(request, data_size));
 
         ASSERT_EQ(data_size, dsn_msg_body_size(request));
 
@@ -228,7 +230,7 @@ TEST(core, message_ex)
 
         ASSERT_EQ(data_size, dsn_msg_body_size(receive));
 
-        dsn_msg_read_next(receive, &ptr, &sz);
+        ASSERT_TRUE(dsn_msg_read_next(receive, &ptr, &sz));
         ASSERT_EQ(data_size, sz);
         ASSERT_EQ(std::string(data), std::string((const char*)ptr, sz));
         dsn_msg_read_commit(receive, sz);
@@ -244,3 +246,100 @@ TEST(core, message_ex)
     }
 }
 
+TEST(core, dsn_msg_invalid_parameters)
+{
+    void* ptr = reinterpret_cast<void*>(1);
+    size_t size = 1;
+    dsn_msg_options_t opts;
+    opts.timeout_ms = 1;
+
+    char buffer[] = "message";
+    ASSERT_EQ(nullptr, dsn_msg_create_request(TASK_CODE_INVALID, 0, 0, 0));
+    ASSERT_EQ(nullptr, dsn_msg_create_request(RPC_CODE_FOR_TEST, -1, 0, 0));
+    ASSERT_EQ(nullptr,
+              dsn_msg_create_received_request(TASK_CODE_INVALID,
+                                              DSF_THRIFT_BINARY,
+                                              buffer,
+                                              static_cast<int>(sizeof(buffer)),
+                                              0,
+                                              0));
+    ASSERT_EQ(nullptr,
+              dsn_msg_create_received_request(RPC_CODE_FOR_TEST,
+                                              DSF_THRIFT_BINARY,
+                                              buffer,
+                                              -1,
+                                              0,
+                                              0));
+    ASSERT_EQ(nullptr,
+              dsn_msg_create_received_request(RPC_CODE_FOR_TEST,
+                                              DSF_THRIFT_BINARY,
+                                              nullptr,
+                                              1,
+                                              0,
+                                              0));
+    ASSERT_EQ(nullptr,
+              dsn_msg_create_received_request(RPC_CODE_FOR_TEST,
+                                              DSF_INVALID,
+                                              nullptr,
+                                              0,
+                                              0,
+                                              0));
+    ASSERT_EQ(nullptr,
+              dsn_msg_create_received_request(
+                  RPC_CODE_FOR_TEST,
+                  static_cast<dsn_msg_serialize_format>(DSF_JSON + 1),
+                  nullptr,
+                  0,
+                  0,
+                  0));
+
+    ASSERT_EQ(nullptr, dsn_msg_copy(nullptr, true, false));
+    ASSERT_EQ(nullptr, dsn_msg_create_response(nullptr));
+    ASSERT_EQ(0u, dsn_msg_body_size(nullptr));
+    ASSERT_EQ(nullptr, dsn_msg_rw_ptr(nullptr, 0));
+    ASSERT_EQ(0u, dsn_msg_from_address(nullptr).u.value);
+    ASSERT_EQ(0u, dsn_msg_to_address(nullptr).u.value);
+    ASSERT_EQ(0u, dsn_msg_trace_id(nullptr));
+    ASSERT_EQ(TASK_CODE_INVALID, dsn_msg_task_code(nullptr));
+    ASSERT_EQ(DSF_INVALID, dsn_msg_get_serialize_format(nullptr));
+
+    ASSERT_FALSE(dsn_msg_set_options(nullptr, &opts, DSN_MSGM_TIMEOUT));
+    ASSERT_FALSE(dsn_msg_set_options(nullptr, nullptr, DSN_MSGM_TIMEOUT));
+    ASSERT_FALSE(dsn_msg_get_options(nullptr, &opts));
+    ASSERT_FALSE(dsn_msg_get_options(nullptr, nullptr));
+    ASSERT_FALSE(dsn_msg_set_serailize_format(nullptr, DSF_THRIFT_BINARY));
+
+    ASSERT_FALSE(dsn_msg_write_next(nullptr, &ptr, &size, 1));
+    ASSERT_EQ(nullptr, ptr);
+    ASSERT_EQ(0u, size);
+    ASSERT_FALSE(dsn_msg_write_next(nullptr, nullptr, &size, 1));
+    ASSERT_FALSE(dsn_msg_write_next(nullptr, &ptr, nullptr, 1));
+    ASSERT_FALSE(dsn_msg_write_commit(nullptr, 0));
+
+    ptr = reinterpret_cast<void*>(1);
+    size = 1;
+    ASSERT_FALSE(dsn_msg_read_next(nullptr, &ptr, &size));
+    ASSERT_EQ(nullptr, ptr);
+    ASSERT_EQ(0u, size);
+    ASSERT_FALSE(dsn_msg_read_next(nullptr, nullptr, &size));
+    ASSERT_FALSE(dsn_msg_read_next(nullptr, &ptr, nullptr));
+    ASSERT_FALSE(dsn_msg_read_commit(nullptr, 0));
+
+    dsn_message_t request = dsn_msg_create_request(RPC_CODE_FOR_TEST, 100, 1, 2);
+    ASSERT_NE(nullptr, request);
+    dsn_msg_add_ref(request);
+
+    ASSERT_FALSE(dsn_msg_set_options(request, nullptr, DSN_MSGM_TIMEOUT));
+    opts.timeout_ms = -1;
+    ASSERT_FALSE(dsn_msg_set_options(request, &opts, DSN_MSGM_TIMEOUT));
+    ASSERT_FALSE(dsn_msg_get_options(request, nullptr));
+    ASSERT_FALSE(dsn_msg_set_serailize_format(request, DSF_INVALID));
+    ASSERT_FALSE(dsn_msg_set_serailize_format(
+        request, static_cast<dsn_msg_serialize_format>(DSF_JSON + 1)));
+    ASSERT_FALSE(dsn_msg_write_next(request, nullptr, &size, 1));
+    ASSERT_FALSE(dsn_msg_write_next(request, &ptr, nullptr, 1));
+    ASSERT_FALSE(dsn_msg_read_next(request, nullptr, &size));
+    ASSERT_FALSE(dsn_msg_read_next(request, &ptr, nullptr));
+
+    dsn_msg_release_ref(request);
+}

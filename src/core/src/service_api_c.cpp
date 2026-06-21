@@ -89,21 +89,42 @@ public:
 
 DSN_API dsn_error_t dsn_error_register(const char* name)
 {
-    dassert(strlen(name) < DSN_MAX_ERROR_CODE_NAME_LENGTH,
-        "error code '%s' is too long - length must be smaller than %d",
-        name,
-        DSN_MAX_ERROR_CODE_NAME_LENGTH
-        );
+    if (name == nullptr || name[0] == '\0')
+    {
+        derror("dsn_error_register got null or empty name");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (strlen(name) >= DSN_MAX_ERROR_CODE_NAME_LENGTH)
+    {
+        derror("dsn_error_register got too long name '%s' - length must be smaller than %d",
+               name,
+               DSN_MAX_ERROR_CODE_NAME_LENGTH);
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
     return static_cast<dsn_error_t>(error_code_mgr::instance().register_id(name));
 }
 
 DSN_API const char* dsn_error_to_string(dsn_error_t err)
 {
+    if (err < 0)
+    {
+        derror("dsn_error_to_string got invalid error code = %d", err);
+        return "unknown";
+    }
+
     return error_code_mgr::instance().get_name(static_cast<int>(err));
 }
 
 DSN_API dsn_error_t dsn_error_from_string(const char* s, dsn_error_t default_err)
 {
+    if (s == nullptr || s[0] == '\0')
+    {
+        derror("dsn_error_from_string got null or empty string");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
     auto r = error_code_mgr::instance().get_id(s);
     return r == -1 ? default_err : r;
 }
@@ -113,12 +134,31 @@ DSN_API volatile int* dsn_task_queue_virtual_length_ptr(
     int hash
     )
 {
-    return dsn::task::get_current_node()->computation()->get_task_queue_virtual_length_ptr(code, hash);
+    if (code < 0 || code == ::dsn::TASK_CODE_INVALID)
+    {
+        derror("dsn_task_queue_virtual_length_ptr got invalid code = %d", code);
+        return nullptr;
+    }
+
+    auto node = dsn::task::get_current_node();
+    if (node == nullptr)
+    {
+        derror("dsn_task_queue_virtual_length_ptr got null current node");
+        return nullptr;
+    }
+
+    return node->computation()->get_task_queue_virtual_length_ptr(code, hash);
 }
 
 // use ::dsn::threadpool_code2; for parsing purpose
 DSN_API dsn_threadpool_code_t dsn_threadpool_code_register(const char* name)
 {
+    if (name == nullptr || name[0] == '\0')
+    {
+        derror("dsn_threadpool_code_register got null or empty name");
+        return (dsn_threadpool_code_t)::dsn::THREAD_POOL_INVALID;
+    }
+
     return static_cast<dsn_threadpool_code_t>(
         ::dsn::utils::customized_id_mgr< ::dsn::threadpool_code2_>::instance().register_id(name)
         );
@@ -131,6 +171,12 @@ DSN_API const char* dsn_threadpool_code_to_string(dsn_threadpool_code_t pool_cod
 
 DSN_API dsn_threadpool_code_t dsn_threadpool_code_from_string(const char* s, dsn_threadpool_code_t default_code)
 {
+    if (s == nullptr || s[0] == '\0')
+    {
+        derror("dsn_threadpool_code_from_string got null or empty string");
+        return static_cast<dsn_threadpool_code_t>(::dsn::THREAD_POOL_INVALID);
+    }
+
     auto r = ::dsn::utils::customized_id_mgr< ::dsn::threadpool_code2_>::instance().get_id(s);
     return r == -1 ? default_code : r;
 }
@@ -153,11 +199,38 @@ DSN_API dsn_task_code_t dsn_task_code_register(
     dsn_threadpool_code_t pool
     )
 {
-    dassert(strlen(name) < DSN_MAX_TASK_CODE_NAME_LENGTH, 
-        "task code '%s' is too long - length must be smaller than %d",
-        name,
-        DSN_MAX_TASK_CODE_NAME_LENGTH
-        );
+    if (name == nullptr || name[0] == '\0')
+    {
+        derror("dsn_task_code_register got null or empty name");
+        return static_cast<dsn_task_code_t>(::dsn::TASK_CODE_INVALID);
+    }
+
+    if (strlen(name) >= DSN_MAX_TASK_CODE_NAME_LENGTH)
+    {
+        derror("dsn_task_code_register got too long name '%s' - length must be smaller than %d",
+               name,
+               DSN_MAX_TASK_CODE_NAME_LENGTH);
+        return static_cast<dsn_task_code_t>(::dsn::TASK_CODE_INVALID);
+    }
+
+    if (type < TASK_TYPE_RPC_REQUEST || type >= TASK_TYPE_COUNT)
+    {
+        derror("dsn_task_code_register got invalid type = %d", type);
+        return static_cast<dsn_task_code_t>(::dsn::TASK_CODE_INVALID);
+    }
+
+    if (pri < TASK_PRIORITY_LOW || pri >= TASK_PRIORITY_COUNT)
+    {
+        derror("dsn_task_code_register got invalid priority = %d", pri);
+        return static_cast<dsn_task_code_t>(::dsn::TASK_CODE_INVALID);
+    }
+
+    if (pool < 0 || pool == ::dsn::THREAD_POOL_INVALID)
+    {
+        derror("dsn_task_code_register got invalid pool = %d", pool);
+        return static_cast<dsn_task_code_t>(::dsn::TASK_CODE_INVALID);
+    }
+
     auto r = static_cast<dsn_task_code_t>(::dsn::utils::customized_id_mgr<task_code_placeholder>::instance().register_id(name));
     ::dsn::task_spec::register_task_code(r, type, pri, pool);
     return r;
@@ -166,7 +239,12 @@ DSN_API dsn_task_code_t dsn_task_code_register(
 DSN_API void dsn_task_code_query(dsn_task_code_t code, dsn_task_type_t *ptype, dsn_task_priority_t *ppri, dsn_threadpool_code_t *ppool)
 {
     auto sp = ::dsn::task_spec::get(code);
-    dassert(sp != nullptr, "");
+    if (code == ::dsn::TASK_CODE_INVALID || sp == nullptr)
+    {
+        derror("dsn_task_code_query got invalid code = %d", code);
+        return;
+    }
+
     if (ptype) *ptype = sp->type;
     if (ppri) *ppri = sp->priority;
     if (ppool) *ppool = sp->pool_code;
@@ -175,24 +253,58 @@ DSN_API void dsn_task_code_query(dsn_task_code_t code, dsn_task_type_t *ptype, d
 DSN_API void dsn_task_code_set_threadpool(dsn_task_code_t code, dsn_threadpool_code_t pool)
 {
     auto sp = ::dsn::task_spec::get(code);
-    dassert(sp != nullptr, "");
+    if (code == ::dsn::TASK_CODE_INVALID || sp == nullptr)
+    {
+        derror("dsn_task_code_set_threadpool got invalid code = %d", code);
+        return;
+    }
+
+    if (pool < 0 || pool == ::dsn::THREAD_POOL_INVALID)
+    {
+        derror("dsn_task_code_set_threadpool got invalid pool = %d", pool);
+        return;
+    }
+
     sp->pool_code = pool;
 }
 
 DSN_API void dsn_task_code_set_priority(dsn_task_code_t code, dsn_task_priority_t pri)
 {
     auto sp = ::dsn::task_spec::get(code);
-    dassert(sp != nullptr, "");
+    if (code == ::dsn::TASK_CODE_INVALID || sp == nullptr)
+    {
+        derror("dsn_task_code_set_priority got invalid code = %d", code);
+        return;
+    }
+
+    if (pri < TASK_PRIORITY_LOW || pri >= TASK_PRIORITY_COUNT)
+    {
+        derror("dsn_task_code_set_priority got invalid priority = %d", pri);
+        return;
+    }
+
     sp->priority = pri;
 }
 
 DSN_API const char* dsn_task_code_to_string(dsn_task_code_t code)
 {
+    if (code < 0)
+    {
+        derror("dsn_task_code_to_string got invalid code = %d", code);
+        return "unknown";
+    }
+
     return ::dsn::utils::customized_id_mgr<task_code_placeholder>::instance().get_name(static_cast<int>(code));
 }
 
 DSN_API dsn_task_code_t dsn_task_code_from_string(const char* s, dsn_task_code_t default_code)
 {
+    if (s == nullptr || s[0] == '\0')
+    {
+        derror("dsn_task_code_from_string got null or empty string");
+        return static_cast<dsn_task_code_t>(::dsn::TASK_CODE_INVALID);
+    }
+
     auto r = ::dsn::utils::customized_id_mgr<task_code_placeholder>::instance().get_id(s);
     return r == -1 ? default_code : r;
 }
@@ -204,17 +316,35 @@ DSN_API int dsn_task_code_max()
 
 DSN_API const char* dsn_task_type_to_string(dsn_task_type_t tt)
 {
+    if (tt < TASK_TYPE_RPC_REQUEST || tt >= TASK_TYPE_COUNT)
+    {
+        derror("dsn_task_type_to_string got invalid task type = %d", tt);
+        return "Unknown";
+    }
+
     return enum_to_string(tt);
 }
 
 DSN_API const char* dsn_task_priority_to_string(dsn_task_priority_t tt)
 {
+    if (tt < TASK_PRIORITY_LOW || tt >= TASK_PRIORITY_COUNT)
+    {
+        derror("dsn_task_priority_to_string got invalid task priority = %d", tt);
+        return "Unknown";
+    }
+
     return enum_to_string(tt);
 }
 
 DSN_API bool dsn_task_is_running_inside(dsn_task_t t)
 {
-    return ::dsn::task::get_current_task() == (::dsn::task*)(t);
+    if (t == nullptr)
+    {
+        derror("dsn_task_is_running_inside got null task");
+        return false;
+    }
+
+    return ::dsn::task::get_current_task() == (::dsn::task*)t;
 }
 
 DSN_API void dsn_coredump()
@@ -225,6 +355,12 @@ DSN_API void dsn_coredump()
 
 DSN_API uint32_t dsn_crc32_compute(const void* ptr, size_t size, uint32_t init_crc)
 {
+    if (ptr == nullptr)
+    {
+        derror("dsn_crc32_compute got null ptr");
+        return CRC_INVALID;
+    }
+
     return ::dsn::utils::crc32::compute(ptr, size, init_crc);
 }
 
@@ -240,6 +376,12 @@ DSN_API uint32_t dsn_crc32_concatenate(uint32_t xy_init, uint32_t x_init, uint32
 
 DSN_API uint64_t dsn_crc64_compute(const void* ptr, size_t size, uint64_t init_crc)
 {
+    if (ptr == nullptr)
+    {
+        derror("dsn_crc64_compute got null ptr");
+        return CRC_INVALID;
+    }
+
     return ::dsn::utils::crc64::compute(ptr, size, init_crc);
 }
 
@@ -254,7 +396,21 @@ DSN_API uint64_t dsn_crc64_concatenate(uint32_t xy_init, uint64_t x_init, uint64
 
 DSN_API dsn_task_t dsn_task_create(dsn_task_code_t code, dsn_task_handler_t cb, void* context, int hash, dsn_task_tracker_t tracker)
 {
-    auto t = new ::dsn::task_c(code, cb, context, nullptr, hash);
+    auto sp = ::dsn::task_spec::get(code);
+    if (code == ::dsn::TASK_CODE_INVALID || sp == nullptr || sp->type != TASK_TYPE_COMPUTE)
+    {
+        derror("dsn_task_create got invalid code = %d", code);
+        return nullptr;
+    }
+
+    if (cb == nullptr)
+    {
+        derror("dsn_task_create got null callback");
+        return nullptr;
+    }
+
+    auto node = ::dsn::task::get_current_node();
+    auto t = new ::dsn::task_c(code, cb, context, nullptr, hash, node);
     t->set_tracker((dsn::task_tracker*)tracker);
     t->spec().on_task_create.execute(::dsn::task::get_current_task(), t);
     return t;
@@ -263,6 +419,25 @@ DSN_API dsn_task_t dsn_task_create(dsn_task_code_t code, dsn_task_handler_t cb, 
 DSN_API dsn_task_t dsn_task_create_timer(dsn_task_code_t code, dsn_task_handler_t cb, 
     void* context, int hash, int interval_milliseconds, dsn_task_tracker_t tracker)
 {
+    auto sp = ::dsn::task_spec::get(code);
+    if (code == ::dsn::TASK_CODE_INVALID || sp == nullptr || sp->type != TASK_TYPE_COMPUTE)
+    {
+        derror("dsn_task_create_timer got invalid code = %d", code);
+        return nullptr;
+    }
+
+    if (cb == nullptr)
+    {
+        derror("dsn_task_create_timer got null callback");
+        return nullptr;
+    }
+
+    if (interval_milliseconds < 0)
+    {
+        derror("dsn_task_create_timer got invalid interval_milliseconds = %d", interval_milliseconds);
+        return nullptr;
+    }
+
     auto t = new ::dsn::timer_task(code, cb, context, nullptr, interval_milliseconds, hash);
     t->set_tracker((dsn::task_tracker*)tracker);
     t->spec().on_task_create.execute(::dsn::task::get_current_task(), t);
@@ -272,6 +447,19 @@ DSN_API dsn_task_t dsn_task_create_timer(dsn_task_code_t code, dsn_task_handler_
 DSN_API dsn_task_t dsn_task_create_ex(dsn_task_code_t code, dsn_task_handler_t cb, 
     dsn_task_cancelled_handler_t on_cancel, void* context, int hash, dsn_task_tracker_t tracker)
 {
+    auto sp = ::dsn::task_spec::get(code);
+    if (code == ::dsn::TASK_CODE_INVALID || sp == nullptr || sp->type != TASK_TYPE_COMPUTE)
+    {
+        derror("dsn_task_create_ex got invalid code = %d", code);
+        return nullptr;
+    }
+
+    if (cb == nullptr)
+    {
+        derror("dsn_task_create_ex got null callback");
+        return nullptr;
+    }
+
     auto t = new ::dsn::task_c(code, cb, context, on_cancel, hash);
     t->set_tracker((dsn::task_tracker*)tracker);
     t->spec().on_task_create.execute(::dsn::task::get_current_task(), t);
@@ -282,6 +470,26 @@ DSN_API dsn_task_t dsn_task_create_timer_ex(dsn_task_code_t code, dsn_task_handl
     dsn_task_cancelled_handler_t on_cancel, 
     void* context, int hash, int interval_milliseconds, dsn_task_tracker_t tracker)
 {
+    auto sp = ::dsn::task_spec::get(code);
+    if (code == ::dsn::TASK_CODE_INVALID || sp == nullptr || sp->type != TASK_TYPE_COMPUTE)
+    {
+        derror("dsn_task_create_timer_ex got invalid code = %d", code);
+        return nullptr;
+    }
+
+    if (cb == nullptr)
+    {
+        derror("dsn_task_create_timer_ex got null callback");
+        return nullptr;
+    }
+
+    if (interval_milliseconds < 0)
+    {
+        derror("dsn_task_create_timer_ex got invalid interval_milliseconds = %d",
+               interval_milliseconds);
+        return nullptr;
+    }
+
     auto t = new ::dsn::timer_task(code, cb, context, on_cancel, interval_milliseconds, hash);
     t->set_tracker((dsn::task_tracker*)tracker);
     t->spec().on_task_create.execute(::dsn::task::get_current_task(), t);
@@ -290,60 +498,148 @@ DSN_API dsn_task_t dsn_task_create_timer_ex(dsn_task_code_t code, dsn_task_handl
 
 DSN_API dsn_task_tracker_t dsn_task_tracker_create(int task_bucket_count)
 {
+    if (task_bucket_count <= 0)
+    {
+        derror("dsn_task_tracker_create got invalid task_bucket_count = %d", task_bucket_count);
+        return nullptr;
+    }
+
     return (dsn_task_tracker_t)(new ::dsn::task_tracker(task_bucket_count));
 }
 
 DSN_API void dsn_task_tracker_destroy(dsn_task_tracker_t tracker)
 {
+    if (tracker == nullptr)
+    {
+        derror("dsn_task_tracker_destroy got null tracker");
+        return;
+    }
+
     delete ((::dsn::task_tracker*)tracker);
 }
 
 DSN_API void dsn_task_tracker_cancel_all(dsn_task_tracker_t tracker)
 {
+    if (tracker == nullptr)
+    {
+        derror("dsn_task_tracker_cancel_all got null tracker");
+        return;
+    }
+
     ((::dsn::task_tracker*)tracker)->cancel_outstanding_tasks();
 }
 
 DSN_API void dsn_task_tracker_wait_all(dsn_task_tracker_t tracker)
 {
+    if (tracker == nullptr)
+    {
+        derror("dsn_task_tracker_wait_all got null tracker");
+        return;
+    }
+
     ((::dsn::task_tracker*)tracker)->wait_outstanding_tasks();
 }
 
-DSN_API void dsn_task_call(dsn_task_t task, int delay_milliseconds)
+DSN_API bool dsn_task_call(dsn_task_t task, int delay_milliseconds)
 {
-    auto t = ((::dsn::task*)(task));
-    dassert(t->spec().type == TASK_TYPE_COMPUTE, "must be common or timer task");
+    if (task == nullptr)
+    {
+        derror("dsn_task_call got null task");
+        return false;
+    }
+
+    if (delay_milliseconds < 0)
+    {
+        derror("dsn_task_call got invalid delay_milliseconds = %d", delay_milliseconds);
+        return false;
+    }
+
+    auto t = (::dsn::task*)task;
+    if (t->spec().type != TASK_TYPE_COMPUTE)
+    {
+        derror("dsn_task_call got non-compute task");
+        return false;
+    }
 
     t->set_delay(delay_milliseconds);
     t->enqueue();
+    return true;
 }
 
 DSN_API void dsn_task_add_ref(dsn_task_t task)
 {
+    if (task == nullptr)
+    {
+        derror("dsn_task_add_ref got null task");
+        return;
+    }
+
     ((::dsn::task*)(task))->add_ref();
 }
 
 DSN_API void dsn_task_release_ref(dsn_task_t task)
 {
+    if (task == nullptr)
+    {
+        derror("dsn_task_release_ref got null task");
+        return;
+    }
+
     ((::dsn::task*)(task))->release_ref();
 }
 
 DSN_API int dsn_task_get_ref(dsn_task_t task)
 {
+    if (task == nullptr)
+    {
+        derror("dsn_task_get_ref got null task");
+        return 0;
+    }
+
     return ((::dsn::task*)(task))->get_count();
 }
 
 DSN_API bool dsn_task_cancel(dsn_task_t task, bool wait_until_finished)
 {
+    if (task == nullptr)
+    {
+        derror("dsn_task_cancel got null task");
+        return false;
+    }
+
     return ((::dsn::task*)(task))->cancel(wait_until_finished);
 }
 
-DSN_API void dsn_task_set_delay(dsn_task_t task, int delay_ms)
+DSN_API bool dsn_task_set_delay(dsn_task_t task, int delay_ms)
 {
+    if (task == nullptr)
+    {
+        derror("dsn_task_set_delay got null task");
+        return false;
+    }
+
+    if (delay_ms < 0)
+    {
+        derror("dsn_task_set_delay got invalid delay_ms = %d", delay_ms);
+        return false;
+    }
+
     ((::dsn::task*)(task))->set_delay(delay_ms);
+    return true;
 }
 
 DSN_API bool dsn_task_cancel2(dsn_task_t task, bool wait_until_finished, bool* finished)
 {
+    if (task == nullptr)
+    {
+        derror("dsn_task_cancel2 got null task");
+        if (finished != nullptr)
+        {
+            *finished = false;
+        }
+        return false;
+    }
+
     return ((::dsn::task*)(task))->cancel(wait_until_finished, finished);
 }
 
@@ -358,20 +654,39 @@ DSN_API void dsn_task_cancel_current_timer()
 
 DSN_API void dsn_task_wait(dsn_task_t task)
 {
-    auto r = ((::dsn::task*)(task))->wait();
+    if (task == nullptr)
+    {
+        derror("dsn_task_wait got null task");
+        return;
+    }
+
+    auto t = (::dsn::task*)task;
+    auto r = t->wait();
     dassert(r, 
         "task wait without timeout must succeeds (task_id = %016" PRIx64 ")",
-        ((::dsn::task*)(task))->id()
+        t->id()
         );
 }
 
 DSN_API bool dsn_task_wait_timeout(dsn_task_t task, int timeout_milliseconds)
 {
+    if (task == nullptr)
+    {
+        derror("dsn_task_wait_timeout got null task");
+        return false;
+    }
+
     return ((::dsn::task*)(task))->wait(timeout_milliseconds);
 }
 
 DSN_API dsn_error_t dsn_task_error(dsn_task_t task)
 {
+    if (task == nullptr)
+    {
+        derror("dsn_task_error got null task");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
     return ((::dsn::task*)(task))->error().get();
 }
 
@@ -412,17 +727,35 @@ DSN_API dsn_handle_t dsn_exlock_create(bool recursive)
 
 DSN_API void dsn_exlock_destroy(dsn_handle_t l)
 {
+    if (l == nullptr)
+    {
+        derror("dsn_exlock_destroy got null lock");
+        return;
+    }
+
     delete (::dsn::ilock*)(l);
 }
 
 DSN_API void dsn_exlock_lock(dsn_handle_t l)
 {
+    if (l == nullptr)
+    {
+        derror("dsn_exlock_lock got null lock");
+        return;
+    }
+
     ((::dsn::ilock*)(l))->lock();
     ::dsn::lock_checker::zlock_exclusive_count++;
 }
 
 DSN_API bool dsn_exlock_try_lock(dsn_handle_t l)
 {
+    if (l == nullptr)
+    {
+        derror("dsn_exlock_try_lock got null lock");
+        return false;
+    }
+
     auto r = ((::dsn::ilock*)(l))->try_lock();
     if (r)
     {
@@ -433,6 +766,12 @@ DSN_API bool dsn_exlock_try_lock(dsn_handle_t l)
 
 DSN_API void dsn_exlock_unlock(dsn_handle_t l)
 {
+    if (l == nullptr)
+    {
+        derror("dsn_exlock_unlock got null lock");
+        return;
+    }
+
     ::dsn::lock_checker::zlock_exclusive_count--;
     ((::dsn::ilock*)(l))->unlock();
 }
@@ -453,23 +792,47 @@ DSN_API dsn_handle_t dsn_rwlock_nr_create()
 
 DSN_API void dsn_rwlock_nr_destroy(dsn_handle_t l)
 {
+    if (l == nullptr)
+    {
+        derror("dsn_rwlock_nr_destroy got null lock");
+        return;
+    }
+
     delete (::dsn::rwlock_nr_provider*)(l);
 }
 
 DSN_API void dsn_rwlock_nr_lock_read(dsn_handle_t l)
 {
+    if (l == nullptr)
+    {
+        derror("dsn_rwlock_nr_lock_read got null lock");
+        return;
+    }
+
     ((::dsn::rwlock_nr_provider*)(l))->lock_read();
     ::dsn::lock_checker::zlock_shared_count++;
 }
 
 DSN_API void dsn_rwlock_nr_unlock_read(dsn_handle_t l)
 {
+    if (l == nullptr)
+    {
+        derror("dsn_rwlock_nr_unlock_read got null lock");
+        return;
+    }
+
     ::dsn::lock_checker::zlock_shared_count--;
     ((::dsn::rwlock_nr_provider*)(l))->unlock_read();
 }
 
 DSN_API bool dsn_rwlock_nr_try_lock_read(dsn_handle_t l)
 {
+    if (l == nullptr)
+    {
+        derror("dsn_rwlock_nr_try_lock_read got null lock");
+        return false;
+    }
+
     auto r = ((::dsn::rwlock_nr_provider*)(l))->try_lock_read();
     if (r) ::dsn::lock_checker::zlock_shared_count++;
     return r;
@@ -477,18 +840,36 @@ DSN_API bool dsn_rwlock_nr_try_lock_read(dsn_handle_t l)
 
 DSN_API void dsn_rwlock_nr_lock_write(dsn_handle_t l)
 {
+    if (l == nullptr)
+    {
+        derror("dsn_rwlock_nr_lock_write got null lock");
+        return;
+    }
+
     ((::dsn::rwlock_nr_provider*)(l))->lock_write();
     ::dsn::lock_checker::zlock_exclusive_count++;
 }
 
 DSN_API void dsn_rwlock_nr_unlock_write(dsn_handle_t l)
 {
+    if (l == nullptr)
+    {
+        derror("dsn_rwlock_nr_unlock_write got null lock");
+        return;
+    }
+
     ::dsn::lock_checker::zlock_exclusive_count--;
     ((::dsn::rwlock_nr_provider*)(l))->unlock_write();
 }
 
 DSN_API bool dsn_rwlock_nr_try_lock_write(dsn_handle_t l)
 {
+    if (l == nullptr)
+    {
+        derror("dsn_rwlock_nr_try_lock_write got null lock");
+        return false;
+    }
+
     auto r = ((::dsn::rwlock_nr_provider*)(l))->try_lock_write();
     if (r) ::dsn::lock_checker::zlock_exclusive_count++;
     return r;
@@ -496,6 +877,12 @@ DSN_API bool dsn_rwlock_nr_try_lock_write(dsn_handle_t l)
 
 DSN_API dsn_handle_t dsn_semaphore_create(int initial_count)
 {
+    if (initial_count < 0)
+    {
+        derror("dsn_semaphore_create got invalid initial_count = %d", initial_count);
+        return nullptr;
+    }
+
     ::dsn::semaphore_provider* last = ::dsn::utils::factory_store< ::dsn::semaphore_provider>::create(
         ::dsn::service_engine::fast_instance().spec().semaphore_factory_name.c_str(), ::dsn::PROVIDER_TYPE_MAIN, initial_count, nullptr);
 
@@ -510,22 +897,52 @@ DSN_API dsn_handle_t dsn_semaphore_create(int initial_count)
 
 DSN_API void dsn_semaphore_destroy(dsn_handle_t s)
 {
+    if (s == nullptr)
+    {
+        derror("dsn_semaphore_destroy got null semaphore");
+        return;
+    }
+
     delete (::dsn::semaphore_provider*)(s);
 }
 
 DSN_API void dsn_semaphore_signal(dsn_handle_t s, int count)
 {
+    if (s == nullptr)
+    {
+        derror("dsn_semaphore_signal got null semaphore");
+        return;
+    }
+
+    if (count <= 0)
+    {
+        derror("dsn_semaphore_signal got invalid count = %d", count);
+        return;
+    }
+
     ((::dsn::semaphore_provider*)(s))->signal(count);
 }
 
 DSN_API void dsn_semaphore_wait(dsn_handle_t s)
 {
+    if (s == nullptr)
+    {
+        derror("dsn_semaphore_wait got null semaphore");
+        return;
+    }
+
     ::dsn::lock_checker::check_wait_safety();
     ((::dsn::semaphore_provider*)(s))->wait();
 }
 
 DSN_API bool dsn_semaphore_wait_timeout(dsn_handle_t s, int timeout_milliseconds)
 {
+    if (s == nullptr)
+    {
+        derror("dsn_semaphore_wait_timeout got null semaphore");
+        return false;
+    }
+
     return ((::dsn::semaphore_provider*)(s))->wait(timeout_milliseconds);
 }
 
@@ -538,7 +955,14 @@ DSN_API bool dsn_semaphore_wait_timeout(dsn_handle_t s, int timeout_milliseconds
 // rpc calls
 DSN_API dsn_address_t dsn_primary_address()
 {
-    return ::dsn::task::get_current_rpc()->primary_address().c_addr();
+    auto rpc = ::dsn::task::get_current_rpc();
+    if (rpc == nullptr)
+    {
+        derror("dsn_primary_address got null current rpc engine");
+        return ::dsn::rpc_address().c_addr();
+    }
+
+    return rpc->primary_address().c_addr();
 }
 
 DSN_API bool dsn_rpc_register_handler(
@@ -549,6 +973,25 @@ DSN_API bool dsn_rpc_register_handler(
     dsn_gpid gpid
     )
 {
+    auto sp = ::dsn::task_spec::get(code);
+    if (code == ::dsn::TASK_CODE_INVALID || sp == nullptr || sp->type != TASK_TYPE_RPC_REQUEST)
+    {
+        derror("dsn_rpc_register_handler got invalid code = %d", code);
+        return false;
+    }
+
+    if (name == nullptr || name[0] == '\0')
+    {
+        derror("dsn_rpc_register_handler got null or empty name");
+        return false;
+    }
+
+    if (cb == nullptr)
+    {
+        derror("dsn_rpc_register_handler got null callback");
+        return false;
+    }
+
     ::dsn::rpc_handler_info* h(new ::dsn::rpc_handler_info(code));
     h->name = name;
     h->c_handler = cb;
@@ -566,6 +1009,13 @@ DSN_API bool dsn_rpc_register_handler(
 
 DSN_API void* dsn_rpc_unregiser_handler(dsn_task_code_t code, dsn_gpid gpid)
 {
+    auto sp = ::dsn::task_spec::get(code);
+    if (code == ::dsn::TASK_CODE_INVALID || sp == nullptr || sp->type != TASK_TYPE_RPC_REQUEST)
+    {
+        derror("dsn_rpc_unregiser_handler got invalid code = %d", code);
+        return nullptr;
+    }
+
     auto h = ::dsn::task::get_current_node()->rpc_unregister_handler(code, gpid);
     void* param = nullptr;
 
@@ -583,6 +1033,12 @@ DSN_API dsn_task_t dsn_rpc_create_response_task(dsn_message_t request, dsn_rpc_r
     void* context, int reply_thread_hash, dsn_task_tracker_t tracker)
 {
     auto msg = ((::dsn::message_ex*)request);
+    if (msg == nullptr)
+    {
+        derror("dsn_rpc_create_response_task got null request");
+        return nullptr;
+    }
+
     auto t = new ::dsn::rpc_response_task(msg, cb, context, nullptr, reply_thread_hash);
     t->set_tracker((dsn::task_tracker*)tracker);
     t->spec().on_task_create.execute(::dsn::task::get_current_task(), t);
@@ -594,31 +1050,85 @@ DSN_API dsn_task_t dsn_rpc_create_response_task_ex(dsn_message_t request, dsn_rp
     void* context, int reply_thread_hash, dsn_task_tracker_t tracker)
 {
     auto msg = ((::dsn::message_ex*)request);
+    if (msg == nullptr)
+    {
+        derror("dsn_rpc_create_response_task_ex got null request");
+        return nullptr;
+    }
+
     auto t = new ::dsn::rpc_response_task(msg, cb, context, on_cancel, reply_thread_hash);
     t->set_tracker((dsn::task_tracker*)tracker);
     t->spec().on_task_create.execute(::dsn::task::get_current_task(), t);
     return t;
 }
 
-DSN_API void dsn_rpc_call(dsn_address_t server, dsn_task_t rpc_call)
+DSN_API dsn_error_t dsn_rpc_call(dsn_address_t server, dsn_task_t rpc_call)
 {
     ::dsn::rpc_response_task* task = (::dsn::rpc_response_task*)rpc_call;
-    dassert(task->spec().type == TASK_TYPE_RPC_RESPONSE, "");
+    if (task == nullptr)
+    {
+        derror("dsn_rpc_call got null rpc_call");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (task->spec().type != TASK_TYPE_RPC_RESPONSE)
+    {
+        derror("dsn_rpc_call got non-rpc-response task");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (::dsn::rpc_address(server).is_invalid())
+    {
+        derror("dsn_rpc_call got invalid server address");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto rpc = ::dsn::task::get_current_rpc();
+    if (rpc == nullptr)
+    {
+        derror("dsn_rpc_call got null current rpc engine");
+        return ::dsn::ERR_INVALID_STATE.get();
+    }
     
     auto msg = task->get_request();
+    if (msg == nullptr)
+    {
+        derror("dsn_rpc_call got null request message");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
     msg->server_address = server;
-    ::dsn::task::get_current_rpc()->call(msg, task);
+    rpc->call(msg, task);
+    return ::dsn::ERR_OK.get();
 }
 
 DSN_API dsn_message_t dsn_rpc_call_wait(dsn_address_t server, dsn_message_t request)
 {
     auto msg = ((::dsn::message_ex*)request);
+    if (msg == nullptr)
+    {
+        derror("dsn_rpc_call_wait got null request");
+        return nullptr;
+    }
+
+    if (::dsn::rpc_address(server).is_invalid())
+    {
+        derror("dsn_rpc_call_wait got invalid server address");
+        return nullptr;
+    }
+
+    auto rpc = ::dsn::task::get_current_rpc();
+    if (rpc == nullptr)
+    {
+        derror("dsn_rpc_call_wait got null current rpc engine");
+        return nullptr;
+    }
+
     msg->server_address = server;
 
-    ::dsn::rpc_response_task* rtask = 
-        new ::dsn::rpc_response_task(msg, nullptr, nullptr, 0);
+    ::dsn::rpc_response_task* rtask = new ::dsn::rpc_response_task(msg, nullptr, nullptr, 0);
     rtask->add_ref();
-    ::dsn::task::get_current_rpc()->call(msg, rtask);
+    rpc->call(msg, rtask);
     rtask->wait();
     if (rtask->error() == ::dsn::ERR_OK)
     {
@@ -634,29 +1144,96 @@ DSN_API dsn_message_t dsn_rpc_call_wait(dsn_address_t server, dsn_message_t requ
     }
 }
 
-DSN_API void dsn_rpc_call_one_way(dsn_address_t server, dsn_message_t request)
+DSN_API dsn_error_t dsn_rpc_call_one_way(dsn_address_t server, dsn_message_t request)
 {
     auto msg = ((::dsn::message_ex*)request);
+    if (msg == nullptr)
+    {
+        derror("dsn_rpc_call_one_way got null request");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (::dsn::rpc_address(server).is_invalid())
+    {
+        derror("dsn_rpc_call_one_way got invalid server address");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto rpc = ::dsn::task::get_current_rpc();
+    if (rpc == nullptr)
+    {
+        derror("dsn_rpc_call_one_way got null current rpc engine");
+        return ::dsn::ERR_INVALID_STATE.get();
+    }
+
     msg->server_address = server;
 
-    ::dsn::task::get_current_rpc()->call(msg, nullptr);
+    rpc->call(msg, nullptr);
+    return ::dsn::ERR_OK.get();
 }
 
-DSN_API void dsn_rpc_reply(dsn_message_t response, dsn_error_t err)
+DSN_API dsn_error_t dsn_rpc_reply(dsn_message_t response, dsn_error_t err)
 {
     auto msg = ((::dsn::message_ex*)response);
-    ::dsn::task::get_current_rpc()->reply(msg, err);
+    if (msg == nullptr)
+    {
+        derror("dsn_rpc_reply got null response");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto rpc = ::dsn::task::get_current_rpc();
+    if (rpc == nullptr)
+    {
+        derror("dsn_rpc_reply got null current rpc engine");
+        return ::dsn::ERR_INVALID_STATE.get();
+    }
+
+    rpc->reply(msg, err);
+    return ::dsn::ERR_OK.get();
 }
 
-DSN_API void dsn_rpc_forward(dsn_message_t request, dsn_address_t addr)
+DSN_API dsn_error_t dsn_rpc_forward(dsn_message_t request, dsn_address_t addr)
 {
-    ::dsn::task::get_current_rpc()->forward((::dsn::message_ex*)(request), ::dsn::rpc_address(addr));
+    auto msg = (::dsn::message_ex*)(request);
+    if (msg == nullptr)
+    {
+        derror("dsn_rpc_forward got null request");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto target = ::dsn::rpc_address(addr);
+    if (target.is_invalid())
+    {
+        derror("dsn_rpc_forward got invalid target address");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto rpc = ::dsn::task::get_current_rpc();
+    if (rpc == nullptr)
+    {
+        derror("dsn_rpc_forward got null current rpc engine");
+        return ::dsn::ERR_INVALID_STATE.get();
+    }
+
+    rpc->forward(msg, target);
+    return ::dsn::ERR_OK.get();
 }
 
 DSN_API dsn_message_t dsn_rpc_get_response(dsn_task_t rpc_call)
 {
     ::dsn::rpc_response_task* task = (::dsn::rpc_response_task*)rpc_call;
-    dassert(task->spec().type == TASK_TYPE_RPC_RESPONSE, "");
+    if (task == nullptr)
+    {
+        derror("dsn_rpc_get_response got null rpc_call");
+        return nullptr;
+    }
+
+    if (task->spec().type != TASK_TYPE_RPC_RESPONSE)
+    {
+        derror("dsn_rpc_get_response got non-rpc-response task");
+        return nullptr;
+    }
+
     auto msg = task->get_response();
     if (nullptr != msg)
     {
@@ -667,13 +1244,24 @@ DSN_API dsn_message_t dsn_rpc_get_response(dsn_task_t rpc_call)
         return nullptr;
 }
 
-DSN_API void dsn_rpc_enqueue_response(dsn_task_t rpc_call, dsn_error_t err, dsn_message_t response)
+DSN_API dsn_error_t dsn_rpc_enqueue_response(dsn_task_t rpc_call, dsn_error_t err, dsn_message_t response)
 {
     ::dsn::rpc_response_task* task = (::dsn::rpc_response_task*)rpc_call;
-    dassert(task->spec().type == TASK_TYPE_RPC_RESPONSE, "");
+    if (task == nullptr)
+    {
+        derror("dsn_rpc_enqueue_response got null rpc_call");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (task->spec().type != TASK_TYPE_RPC_RESPONSE)
+    {
+        derror("dsn_rpc_enqueue_response got non-rpc-response task");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
 
     auto resp = ((::dsn::message_ex*)response);
     task->enqueue(err, resp);
+    return ::dsn::ERR_OK.get();
 }
 
 //------------------------------------------------------------------------------
@@ -684,28 +1272,80 @@ DSN_API void dsn_rpc_enqueue_response(dsn_task_t rpc_call, dsn_error_t err, dsn_
 
 DSN_API dsn_handle_t dsn_file_open(const char* file_name, int flag, int pmode)
 {
-    return ::dsn::task::get_current_disk()->open(file_name, flag, pmode);
+    if (file_name == nullptr || file_name[0] == '\0')
+    {
+        derror("dsn_file_open got null or empty file_name");
+        return nullptr;
+    }
+
+    auto disk = ::dsn::task::get_current_disk();
+    if (disk == nullptr)
+    {
+        derror("dsn_file_open got null current disk engine");
+        return nullptr;
+    }
+
+    return disk->open(file_name, flag, pmode);
 }
 
 DSN_API dsn_error_t dsn_file_close(dsn_handle_t file)
 {
-    return ::dsn::task::get_current_disk()->close(file);
+    if (file == nullptr)
+    {
+        derror("dsn_file_close got null file handle");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto disk = ::dsn::task::get_current_disk();
+    if (disk == nullptr)
+    {
+        derror("dsn_file_close got null current disk engine");
+        return ::dsn::ERR_INVALID_STATE.get();
+    }
+
+    return disk->close(file).get();
 }
 
 DSN_API dsn_error_t dsn_file_flush(dsn_handle_t file)
 {
-    return ::dsn::task::get_current_disk()->flush(file);
+    if (file == nullptr)
+    {
+        derror("dsn_file_flush got null file handle");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto disk = ::dsn::task::get_current_disk();
+    if (disk == nullptr)
+    {
+        derror("dsn_file_flush got null current disk engine");
+        return ::dsn::ERR_INVALID_STATE.get();
+    }
+
+    return disk->flush(file).get();
 }
 
 // native HANDLE: HANDLE for windows, int for non-windows
 DSN_API void* dsn_file_native_handle(dsn_handle_t file)
 {
+    if (file == nullptr)
+    {
+        derror("dsn_file_native_handle got null file handle");
+        return nullptr;
+    }
+
     auto dfile = (::dsn::disk_file*)file;
     return dfile->native_handle();
 }
 
 DSN_API dsn_task_t dsn_file_create_aio_task(dsn_task_code_t code, dsn_aio_handler_t cb, void* context, int hash, dsn_task_tracker_t tracker)
 {
+    auto sp = ::dsn::task_spec::get(code);
+    if (code == ::dsn::TASK_CODE_INVALID || sp == nullptr || sp->type != TASK_TYPE_AIO)
+    {
+        derror("dsn_file_create_aio_task got invalid code = %d", code);
+        return nullptr;
+    }
+
     auto t = new ::dsn::aio_task(code, cb, context, nullptr, hash);
     t->set_tracker((dsn::task_tracker*)tracker);
     t->spec().on_task_create.execute(::dsn::task::get_current_task(), t);
@@ -716,15 +1356,53 @@ DSN_API dsn_task_t dsn_file_create_aio_task_ex(dsn_task_code_t code, dsn_aio_han
     dsn_task_cancelled_handler_t on_cancel,
     void* context, int hash, dsn_task_tracker_t tracker)
 {
+    auto sp = ::dsn::task_spec::get(code);
+    if (code == ::dsn::TASK_CODE_INVALID || sp == nullptr || sp->type != TASK_TYPE_AIO)
+    {
+        derror("dsn_file_create_aio_task_ex got invalid code = %d", code);
+        return nullptr;
+    }
+
     auto t = new ::dsn::aio_task(code, cb, context, on_cancel, hash);
     t->set_tracker((dsn::task_tracker*)tracker);
     t->spec().on_task_create.execute(::dsn::task::get_current_task(), t);
     return t;
 }
 
-DSN_API void dsn_file_read(dsn_handle_t file, char* buffer, int count, uint64_t offset, dsn_task_t cb)
+DSN_API dsn_error_t dsn_file_read(dsn_handle_t file, char* buffer, int count, uint64_t offset, dsn_task_t cb)
 {
-    ::dsn::aio_task* callback((::dsn::aio_task*)cb);    
+    if (file == nullptr)
+    {
+        derror("dsn_file_read got null file handle");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (buffer == nullptr)
+    {
+        derror("dsn_file_read got null buffer");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (count < 0)
+    {
+        derror("dsn_file_read got invalid count = %d", count);
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    ::dsn::aio_task* callback((::dsn::aio_task*)cb);
+    if (callback == nullptr)
+    {
+        derror("dsn_file_read got null callback task");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto disk = ::dsn::task::get_current_disk();
+    if (disk == nullptr)
+    {
+        derror("dsn_file_read got null current disk engine");
+        return ::dsn::ERR_INVALID_STATE.get();
+    }
+
     callback->aio()->buffer = buffer;
     callback->aio()->buffer_size = count;
     callback->aio()->engine = nullptr;
@@ -732,12 +1410,44 @@ DSN_API void dsn_file_read(dsn_handle_t file, char* buffer, int count, uint64_t 
     callback->aio()->file_offset = offset;
     callback->aio()->type = ::dsn::AIO_Read;
 
-    ::dsn::task::get_current_disk()->read(callback);
+    disk->read(callback);
+    return ::dsn::ERR_OK.get();
 }
 
-DSN_API void dsn_file_write(dsn_handle_t file, const char* buffer, int count, uint64_t offset, dsn_task_t cb)
+DSN_API dsn_error_t dsn_file_write(dsn_handle_t file, const char* buffer, int count, uint64_t offset, dsn_task_t cb)
 {
+    if (file == nullptr)
+    {
+        derror("dsn_file_write got null file handle");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (buffer == nullptr)
+    {
+        derror("dsn_file_write got null buffer");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (count < 0)
+    {
+        derror("dsn_file_write got invalid count = %d", count);
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
     ::dsn::aio_task* callback((::dsn::aio_task*)cb);
+    if (callback == nullptr)
+    {
+        derror("dsn_file_write got null callback task");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto disk = ::dsn::task::get_current_disk();
+    if (disk == nullptr)
+    {
+        derror("dsn_file_write got null current disk engine");
+        return ::dsn::ERR_INVALID_STATE.get();
+    }
+
     callback->aio()->buffer = (char*)buffer;
     callback->aio()->buffer_size = count;
     callback->aio()->engine = nullptr;
@@ -745,30 +1455,112 @@ DSN_API void dsn_file_write(dsn_handle_t file, const char* buffer, int count, ui
     callback->aio()->file_offset = offset;
     callback->aio()->type = ::dsn::AIO_Write;
 
-    ::dsn::task::get_current_disk()->write(callback);
+    disk->write(callback);
+    return ::dsn::ERR_OK.get();
 }
 
-DSN_API void dsn_file_write_vector(dsn_handle_t file, const dsn_file_buffer_t* buffers, int buffer_count, uint64_t offset, dsn_task_t cb)
+DSN_API dsn_error_t dsn_file_write_vector(dsn_handle_t file, const dsn_file_buffer_t* buffers, int buffer_count, uint64_t offset, dsn_task_t cb)
 {
+    if (file == nullptr)
+    {
+        derror("dsn_file_write_vector got null file handle");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (buffers == nullptr)
+    {
+        derror("dsn_file_write_vector got null buffers");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (buffer_count <= 0)
+    {
+        derror("dsn_file_write_vector got invalid buffer_count = %d", buffer_count);
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
     ::dsn::aio_task* callback((::dsn::aio_task*)cb);
+    if (callback == nullptr)
+    {
+        derror("dsn_file_write_vector got null callback task");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto disk = ::dsn::task::get_current_disk();
+    if (disk == nullptr)
+    {
+        derror("dsn_file_write_vector got null current disk engine");
+        return ::dsn::ERR_INVALID_STATE.get();
+    }
+
+    for (int i = 0; i < buffer_count; i++)
+    {
+        if (buffers[i].size < 0)
+        {
+            derror("dsn_file_write_vector got invalid buffer size = %d at index = %d",
+                   buffers[i].size,
+                   i);
+            return ::dsn::ERR_INVALID_PARAMETERS.get();
+        }
+
+        if (buffers[i].buffer == nullptr)
+        {
+            derror("dsn_file_write_vector got null buffer at index = %d", i);
+            return ::dsn::ERR_INVALID_PARAMETERS.get();
+        }
+    }
+
     callback->aio()->buffer = nullptr;
     callback->aio()->buffer_size = 0;
     callback->aio()->engine = nullptr;
     callback->aio()->file = file;
     callback->aio()->file_offset = offset;
     callback->aio()->type = ::dsn::AIO_Write;
-    for (int i = 0; i < buffer_count; i ++)
+    for (int i = 0; i < buffer_count; i++)
     {
         callback->_unmerged_write_buffers.push_back(buffers[i]);
         callback->aio()->buffer_size += buffers[i].size;
     }
 
-    ::dsn::task::get_current_disk()->write(callback);
+    disk->write(callback);
+    return ::dsn::ERR_OK.get();
 }
 
-DSN_API void dsn_file_copy_remote_directory(dsn_address_t remote, const char* source_dir, 
+DSN_API dsn_error_t dsn_file_copy_remote_directory(dsn_address_t remote, const char* source_dir,
     const char* dest_dir, bool overwrite, dsn_task_t cb)
 {
+    if (::dsn::rpc_address(remote).is_invalid())
+    {
+        derror("dsn_file_copy_remote_directory got invalid remote address");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (source_dir == nullptr || source_dir[0] == '\0')
+    {
+        derror("dsn_file_copy_remote_directory got null or empty source_dir");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (dest_dir == nullptr || dest_dir[0] == '\0')
+    {
+        derror("dsn_file_copy_remote_directory got null or empty dest_dir");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    ::dsn::aio_task* callback((::dsn::aio_task*)cb);
+    if (callback == nullptr)
+    {
+        derror("dsn_file_copy_remote_directory got null callback task");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto nfs = ::dsn::task::get_current_nfs();
+    if (nfs == nullptr)
+    {
+        derror("dsn_file_copy_remote_directory got null current nfs node");
+        return ::dsn::ERR_INVALID_STATE.get();
+    }
+
     std::shared_ptr< ::dsn::remote_copy_request> rci(new ::dsn::remote_copy_request());
     rci->source = remote;
     rci->source_dir = source_dir;
@@ -776,13 +1568,50 @@ DSN_API void dsn_file_copy_remote_directory(dsn_address_t remote, const char* so
     rci->dest_dir = dest_dir;
     rci->overwrite = overwrite;
 
-    ::dsn::aio_task* callback((::dsn::aio_task*)cb);
-
-    ::dsn::task::get_current_nfs()->call(rci, callback);
+    nfs->call(rci, callback);
+    return ::dsn::ERR_OK.get();
 }
 
-DSN_API void dsn_file_copy_remote_files(dsn_address_t remote, const char* source_dir, const char** source_files, const char* dest_dir, bool overwrite, dsn_task_t cb)
+DSN_API dsn_error_t dsn_file_copy_remote_files(dsn_address_t remote, const char* source_dir, const char** source_files, const char* dest_dir, bool overwrite, dsn_task_t cb)
 {
+    if (::dsn::rpc_address(remote).is_invalid())
+    {
+        derror("dsn_file_copy_remote_files got invalid remote address");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (source_dir == nullptr || source_dir[0] == '\0')
+    {
+        derror("dsn_file_copy_remote_files got null or empty source_dir");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (source_files == nullptr)
+    {
+        derror("dsn_file_copy_remote_files got null source_files");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (dest_dir == nullptr || dest_dir[0] == '\0')
+    {
+        derror("dsn_file_copy_remote_files got null or empty dest_dir");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    ::dsn::aio_task* callback((::dsn::aio_task*)cb);
+    if (callback == nullptr)
+    {
+        derror("dsn_file_copy_remote_files got null callback task");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    auto nfs = ::dsn::task::get_current_nfs();
+    if (nfs == nullptr)
+    {
+        derror("dsn_file_copy_remote_files got null current nfs node");
+        return ::dsn::ERR_INVALID_STATE.get();
+    }
+
     std::shared_ptr< ::dsn::remote_copy_request> rci(new ::dsn::remote_copy_request());
     rci->source = remote;
     rci->source_dir = source_dir;
@@ -803,24 +1632,45 @@ DSN_API void dsn_file_copy_remote_files(dsn_address_t remote, const char* source
     rci->dest_dir = dest_dir;
     rci->overwrite = overwrite;
 
-    ::dsn::aio_task* callback((::dsn::aio_task*)cb);
-
-    ::dsn::task::get_current_nfs()->call(rci, callback);
+    nfs->call(rci, callback);
+    return ::dsn::ERR_OK.get();
 }
 
 DSN_API size_t dsn_file_get_io_size(dsn_task_t cb_task)
 {
     ::dsn::task* task = (::dsn::task*)cb_task;
-    dassert(task->spec().type == TASK_TYPE_AIO, "");
+    if (task == nullptr)
+    {
+        derror("dsn_file_get_io_size got null callback task");
+        return static_cast<size_t>(-1);
+    }
+
+    if (task->spec().type != TASK_TYPE_AIO)
+    {
+        derror("dsn_file_get_io_size got non-aio callback task");
+        return static_cast<size_t>(-1);
+    }
+
     return ((::dsn::aio_task*)task)->get_transferred_size();
 }
 
-DSN_API void dsn_file_task_enqueue(dsn_task_t cb_task, dsn_error_t err, size_t size)
+DSN_API dsn_error_t dsn_file_task_enqueue(dsn_task_t cb_task, dsn_error_t err, size_t size)
 {
     ::dsn::task* task = (::dsn::task*)cb_task;
-    dassert(task->spec().type == TASK_TYPE_AIO, "");
+    if (task == nullptr)
+    {
+        derror("dsn_file_task_enqueue got null callback task");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
+
+    if (task->spec().type != TASK_TYPE_AIO)
+    {
+        derror("dsn_file_task_enqueue got non-aio callback task");
+        return ::dsn::ERR_INVALID_PARAMETERS.get();
+    }
 
     ((::dsn::aio_task*)task)->enqueue(err, size);
+    return ::dsn::ERR_OK.get();
 }
 
 //------------------------------------------------------------------------------
@@ -923,8 +1773,24 @@ NORETURN DSN_API void dsn_exit(int code)
 
 DSN_API bool dsn_mimic_app(const char* app_name, int index)
 {
+    if (app_name == nullptr || app_name[0] == '\0')
+    {
+        derror("dsn_mimic_app got null or empty app_name");
+        return false;
+    }
+
+    if (index <= 0)
+    {
+        derror("dsn_mimic_app got invalid index = %d", index);
+        return false;
+    }
+
     auto worker = ::dsn::task::get_current_worker2();
-    dassert(worker == nullptr, "cannot call dsn_mimic_app in rDSN threads");
+    if (worker != nullptr)
+    {
+        derror("cannot call dsn_mimic_app in rDSN threads");
+        return false;
+    }
 
     auto cnode = ::dsn::task::get_current_node2();
     if (cnode != nullptr)
@@ -959,12 +1825,26 @@ DSN_API bool dsn_mimic_app(const char* app_name, int index)
 
 DSN_API const char* dsn_get_app_data_dir(dsn_gpid gpid)
 {
+    if (gpid.value != 0 && (gpid.u.app_id <= 0 || gpid.u.partition_index < 0))
+    {
+        derror("dsn_get_app_data_dir got invalid gpid = %d.%d",
+               gpid.u.app_id,
+               gpid.u.partition_index);
+        return nullptr;
+    }
+
     auto info = dsn_get_app_info_ptr(gpid);
     return info ? info->data_dir : nullptr;
 }
 
 DSN_API bool dsn_get_current_app_info(/*out*/ dsn_app_info* app_info)
 {
+    if (app_info == nullptr)
+    {
+        derror("dsn_get_current_app_info got null app_info");
+        return false;
+    }
+
     auto info = dsn_get_app_info_ptr(dsn_gpid());
     if (info)
     {
@@ -977,6 +1857,14 @@ DSN_API bool dsn_get_current_app_info(/*out*/ dsn_app_info* app_info)
 
 DSN_API dsn_app_info* dsn_get_app_info_ptr(dsn_gpid gpid)
 {
+    if (gpid.value != 0 && (gpid.u.app_id <= 0 || gpid.u.partition_index < 0))
+    {
+        derror("dsn_get_app_info_ptr got invalid gpid = %d.%d",
+               gpid.u.app_id,
+               gpid.u.partition_index);
+        return nullptr;
+    }
+
     auto cnode = ::dsn::task::get_current_node2();
     if (cnode != nullptr)
     {

@@ -49,6 +49,15 @@ using namespace dsn::utils;
 # endif
 # define __TITLE__ "rpc.message"
 
+namespace {
+
+static inline bool is_valid_serialize_format(dsn_msg_serialize_format fmt)
+{
+    return fmt >= DSF_THRIFT_BINARY && fmt <= DSF_JSON;
+}
+
+} // anonymous namespace
+
 DSN_API dsn_message_t dsn_msg_create_request(
     dsn_task_code_t rpc_code, 
     int timeout_milliseconds,
@@ -56,6 +65,13 @@ DSN_API dsn_message_t dsn_msg_create_request(
     uint64_t partition_hash
     )
 {
+    const auto spec = ::dsn::task_spec::get(rpc_code);
+    if (rpc_code == ::dsn::TASK_CODE_INVALID || spec == nullptr || spec->type != TASK_TYPE_RPC_REQUEST)
+    {
+        derror("dsn_msg_create_request got invalid rpc_code = %d", rpc_code);
+        return nullptr;
+    }
+
     return ::dsn::message_ex::create_request(rpc_code, timeout_milliseconds, thread_hash, partition_hash);
 }
 
@@ -68,6 +84,32 @@ DSN_API dsn_message_t dsn_msg_create_received_request(
     uint64_t partition_hash
     )
 {
+    const auto spec = ::dsn::task_spec::get(rpc_code);
+    if (spec == nullptr || spec->type != TASK_TYPE_RPC_REQUEST)
+    {
+        derror("dsn_msg_create_received_request got invalid rpc_code = %d", rpc_code);
+        return nullptr;
+    }
+
+    if (size < 0)
+    {
+        derror("dsn_msg_create_received_request got invalid size = %d", size);
+        return nullptr;
+    }
+
+    if (buffer == nullptr && size > 0)
+    {
+        derror("dsn_msg_create_received_request got null buffer with size = %d", size);
+        return nullptr;
+    }
+
+    if (!is_valid_serialize_format(serialization_type))
+    {
+        derror("dsn_msg_create_received_request got invalid serialization_type = %d",
+               serialization_type);
+        return nullptr;
+    }
+
     ::dsn::blob bb((const char*)buffer, 0, size);
     auto msg = ::dsn::message_ex::create_receive_message_with_standalone_header(bb);
     msg->local_rpc_code = rpc_code;
@@ -80,85 +122,265 @@ DSN_API dsn_message_t dsn_msg_create_received_request(
 
 DSN_API dsn_message_t dsn_msg_copy(dsn_message_t msg, bool clone_content, bool copy_for_receive)
 {
-    return msg ? ((::dsn::message_ex*)msg)->copy(clone_content, copy_for_receive) : nullptr;
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_copy got null message");
+        return nullptr;
+    }
+
+    return ((::dsn::message_ex*)msg)->copy(clone_content, copy_for_receive);
 }
 
 DSN_API dsn_message_t dsn_msg_create_response(dsn_message_t request)
 {
+    if (request == nullptr)
+    {
+        derror("dsn_msg_create_response got null request");
+        return nullptr;
+    }
+
+    if (((::dsn::message_ex*)request)->header == nullptr)
+    {
+        derror("dsn_msg_create_response got request with null header");
+        return nullptr;
+    }
+
     auto msg = ((::dsn::message_ex*)request)->create_response();
     return msg;
 }
 
-DSN_API void dsn_msg_write_next(dsn_message_t msg, void** ptr, size_t* size, size_t min_size)
+DSN_API bool dsn_msg_write_next(dsn_message_t msg, void** ptr, size_t* size, size_t min_size)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_write_next got null message");
+        if (ptr != nullptr)
+        {
+            *ptr = nullptr;
+        }
+        if (size != nullptr)
+        {
+            *size = 0;
+        }
+        return false;
+    }
+
+    if (ptr == nullptr)
+    {
+        derror("dsn_msg_write_next got null ptr");
+        return false;
+    }
+
+    if (size == nullptr)
+    {
+        derror("dsn_msg_write_next got null size");
+        return false;
+    }
+
     ((::dsn::message_ex*)msg)->write_next(ptr, size, min_size);
+    return true;
 }
 
-DSN_API void dsn_msg_write_commit(dsn_message_t msg, size_t size)
+DSN_API bool dsn_msg_write_commit(dsn_message_t msg, size_t size)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_write_commit got null message");
+        return false;
+    }
+
     ((::dsn::message_ex*)msg)->write_commit(size);
+    return true;
 }
 
 DSN_API bool dsn_msg_read_next(dsn_message_t msg, void** ptr, size_t* size)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_read_next got null message");
+        if (ptr != nullptr)
+        {
+            *ptr = nullptr;
+        }
+        if (size != nullptr)
+        {
+            *size = 0;
+        }
+        return false;
+    }
+
+    if (ptr == nullptr)
+    {
+        derror("dsn_msg_read_next got null ptr");
+        return false;
+    }
+
+    if (size == nullptr)
+    {
+        derror("dsn_msg_read_next got null size");
+        return false;
+    }
+
     return ((::dsn::message_ex*)msg)->read_next(ptr, size);
 }
 
-DSN_API void dsn_msg_read_commit(dsn_message_t msg, size_t size)
+DSN_API bool dsn_msg_read_commit(dsn_message_t msg, size_t size)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_read_commit got null message");
+        return false;
+    }
+
     ((::dsn::message_ex*)msg)->read_commit(size);
+    return true;
 }
 
 DSN_API size_t dsn_msg_body_size(dsn_message_t msg)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_body_size got null message");
+        return 0;
+    }
+
+    if (((::dsn::message_ex*)msg)->header == nullptr)
+    {
+        derror("dsn_msg_body_size got message with null header");
+        return 0;
+    }
+
     return ((::dsn::message_ex*)msg)->body_size();
 }
 
 DSN_API void* dsn_msg_rw_ptr(dsn_message_t msg, size_t offset_begin)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_rw_ptr got null message");
+        return nullptr;
+    }
+
     return ((::dsn::message_ex*)msg)->rw_ptr(offset_begin);
 }
 
 DSN_API void dsn_msg_add_ref(dsn_message_t msg)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_add_ref got null message");
+        return;
+    }
+
     ((::dsn::message_ex*)msg)->add_ref();
 }
 
 DSN_API void dsn_msg_release_ref(dsn_message_t msg)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_release_ref got null message");
+        return;
+    }
+
     ((::dsn::message_ex*)msg)->release_ref();
 }
 
 DSN_API dsn_address_t dsn_msg_from_address(dsn_message_t msg)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_from_address got null message");
+        return ::dsn::rpc_address().c_addr();
+    }
+
+    if (((::dsn::message_ex*)msg)->header == nullptr)
+    {
+        derror("dsn_msg_from_address got message with null header");
+        return ::dsn::rpc_address().c_addr();
+    }
+
     return ((::dsn::message_ex*)msg)->header->from_address.c_addr();
 }
 
 DSN_API dsn_address_t dsn_msg_to_address(dsn_message_t msg)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_to_address got null message");
+        return ::dsn::rpc_address().c_addr();
+    }
+
     return ((::dsn::message_ex*)msg)->to_address.c_addr();
 }
 
 DSN_API uint64_t dsn_msg_trace_id(dsn_message_t msg)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_trace_id got null message");
+        return 0;
+    }
+
+    if (((::dsn::message_ex*)msg)->header == nullptr)
+    {
+        derror("dsn_msg_trace_id got message with null header");
+        return 0;
+    }
+
     return ((::dsn::message_ex*)msg)->header->trace_id;
 }
 
 DSN_API dsn_task_code_t dsn_msg_task_code(dsn_message_t msg)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_task_code got null message");
+        return ::dsn::TASK_CODE_INVALID;
+    }
+
+    if (((::dsn::message_ex*)msg)->header == nullptr)
+    {
+        derror("dsn_msg_task_code got message with null header");
+        return ::dsn::TASK_CODE_INVALID;
+    }
+
     return ((::dsn::message_ex*)msg)->rpc_code();
 }
 
-DSN_API void dsn_msg_set_options(
+DSN_API bool dsn_msg_set_options(
     dsn_message_t msg,
     dsn_msg_options_t *opts,
     uint32_t mask // set opt bits using DSN_MSGM_XXX
     )
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_set_options got null message");
+        return false;
+    }
+
+    if (opts == nullptr)
+    {
+        derror("dsn_msg_set_options got null opts");
+        return false;
+    }
+
     auto hdr = ((::dsn::message_ex*)msg)->header;
+    if (hdr == nullptr)
+    {
+        derror("dsn_msg_set_options got message with null header");
+        return false;
+    }
 
     if (mask & DSN_MSGM_TIMEOUT)
     {
+        if (opts->timeout_ms < 0)
+        {
+            derror("dsn_msg_set_options got invalid timeout_ms = %d", opts->timeout_ms);
+            return false;
+        }
+
         hdr->client.timeout_ms = opts->timeout_ms;
     }
     
@@ -181,31 +403,82 @@ DSN_API void dsn_msg_set_options(
     {
         hdr->context = opts->context;
     }
+    return true;
 }
 
 DSN_API dsn_msg_serialize_format dsn_msg_get_serialize_format(dsn_message_t msg)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_get_serialize_format got null message");
+        return DSF_INVALID;
+    }
+
     auto hdr = ((::dsn::message_ex*)msg)->header;
+    if (hdr == nullptr)
+    {
+        derror("dsn_msg_get_serialize_format got message with null header");
+        return DSF_INVALID;
+    }
+
     return static_cast<dsn_msg_serialize_format>(hdr->context.u.serialize_format);
 }
 
-DSN_API void dsn_msg_set_serailize_format(dsn_message_t msg, dsn_msg_serialize_format fmt)
+DSN_API bool dsn_msg_set_serailize_format(dsn_message_t msg, dsn_msg_serialize_format fmt)
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_set_serailize_format got null message");
+        return false;
+    }
+
     auto hdr = ((::dsn::message_ex*)msg)->header;
+    if (hdr == nullptr)
+    {
+        derror("dsn_msg_set_serailize_format got message with null header");
+        return false;
+    }
+
+    if (!is_valid_serialize_format(fmt))
+    {
+        derror("dsn_msg_set_serailize_format got invalid fmt = %d", fmt);
+        return false;
+    }
+
     hdr->context.u.serialize_format = fmt;
+    return true;
 }
 
-DSN_API void dsn_msg_get_options(
+DSN_API bool dsn_msg_get_options(
     dsn_message_t msg,
     /*out*/ dsn_msg_options_t* opts
     )
 {
+    if (msg == nullptr)
+    {
+        derror("dsn_msg_get_options got null message");
+        return false;
+    }
+
+    if (opts == nullptr)
+    {
+        derror("dsn_msg_get_options got null opts");
+        return false;
+    }
+
     auto hdr = ((::dsn::message_ex*)msg)->header;
+    if (hdr == nullptr)
+    {
+        derror("dsn_msg_get_options got message with null header");
+        return false;
+    }
+
     opts->timeout_ms = hdr->client.timeout_ms;
     opts->thread_hash = hdr->client.thread_hash;
     opts->partition_hash = hdr->client.partition_hash;
     opts->gpid = hdr->gpid;
     opts->context = hdr->context;
+    return true;
 }
 
 namespace dsn {
@@ -390,6 +663,20 @@ message_ex* message_ex::copy_and_prepare_send(bool clone_content)
 
 message_ex* message_ex::create_request(dsn_task_code_t rpc_code, int timeout_milliseconds, int thread_hash, uint64_t partition_hash)
 {
+    task_spec* sp = task_spec::get(rpc_code);
+    if (sp == nullptr)
+    {
+        derror("message_ex::create_request got invalid rpc_code = %d", rpc_code);
+        return nullptr;
+    }
+
+    if (timeout_milliseconds < 0)
+    {
+        derror("message_ex::create_request got invalid timeout_milliseconds = %d",
+               timeout_milliseconds);
+        return nullptr;
+    }
+
     message_ex* msg = new message_ex();
     msg->_is_read = false;
     msg->prepare_buffer_header();
@@ -406,7 +693,6 @@ message_ex* message_ex::create_request(dsn_task_code_t rpc_code, int timeout_mil
     hdr.client.thread_hash = thread_hash;
     hdr.client.partition_hash = partition_hash;
 
-    task_spec* sp = task_spec::get(rpc_code);
     if (0 == timeout_milliseconds)
     {
         hdr.client.timeout_ms = sp->rpc_timeout_milliseconds;

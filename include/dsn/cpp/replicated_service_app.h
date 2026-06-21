@@ -100,6 +100,15 @@ namespace dsn
 
             ::dsn::error_code to_c_state(dsn_app_learn_state& state, int state_capacity)
             {
+                if (state_capacity < 0)
+                {
+                    return ERR_INVALID_PARAMETERS;
+                }
+                if (state_capacity < static_cast<int>(sizeof(dsn_app_learn_state)))
+                {
+                    return ERR_INVALID_PARAMETERS;
+                }
+
                 bool succ = true;
 
                 state.from_decree_excluded = from_decree_excluded;
@@ -197,32 +206,98 @@ namespace dsn
     public:
         static void app_on_batched_write_requests(void* app, int64_t decree, dsn_message_t* requests, int count)
         {
+            if (app == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR,
+                     "cpp.replicated_service_app",
+                     "app_on_batched_write_requests got null app");
+                return;
+            }
+            if (count < 0)
+            {
+                dlog(LOG_LEVEL_ERROR,
+                     "cpp.replicated_service_app",
+                     "app_on_batched_write_requests got invalid count = %d",
+                     count);
+                return;
+            }
+            if (count > 0 && requests == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR,
+                     "cpp.replicated_service_app",
+                     "app_on_batched_write_requests got null requests");
+                return;
+            }
+
             reinterpret_cast<replicated_service_app_type_1*>(app)->on_batched_write_requests(decree, requests, count);
         }
 
         static int app_get_physical_error(void* app)
         {
+            if (app == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR, "cpp.replicated_service_app", "app_get_physical_error got null app");
+                return ERR_INVALID_PARAMETERS.get();
+            }
+
             return reinterpret_cast<replicated_service_app_type_1*>(app)->get_physical_error();
         }
 
         static dsn_error_t app_sync_checkpoint(void* app, int64_t last_commit)
         {
-            return reinterpret_cast<replicated_service_app_type_1*>(app)->sync_checkpoint(last_commit);
+            if (app == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR, "cpp.replicated_service_app", "app_sync_checkpoint got null app");
+                return ERR_INVALID_PARAMETERS.get();
+            }
+
+            return reinterpret_cast<replicated_service_app_type_1*>(app)->sync_checkpoint(last_commit).get();
         }
 
         static dsn_error_t app_async_checkpoint(void* app, int64_t last_commit)
         {
-            return reinterpret_cast<replicated_service_app_type_1*>(app)->async_checkpoint(last_commit);
+            if (app == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR, "cpp.replicated_service_app", "app_async_checkpoint got null app");
+                return ERR_INVALID_PARAMETERS.get();
+            }
+
+            return reinterpret_cast<replicated_service_app_type_1*>(app)->async_checkpoint(last_commit).get();
         }
 
         static int64_t app_get_last_checkpoint_decree(void* app)
         {
+            if (app == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR,
+                     "cpp.replicated_service_app",
+                     "app_get_last_checkpoint_decree got null app");
+                return -1;
+            }
+
             return reinterpret_cast<replicated_service_app_type_1*>(app)->get_last_checkpoint_decree();
         }
 
         static dsn_error_t app_prepare_get_checkpoint(void* app, void* buffer, int capacity, int* occupied)
         {
-            return reinterpret_cast<replicated_service_app_type_1*>(app)->prepare_get_checkpoint(buffer, capacity, occupied);
+            if (app == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR,
+                     "cpp.replicated_service_app",
+                     "app_prepare_get_checkpoint got null app");
+                return ERR_INVALID_PARAMETERS.get();
+            }
+            if (occupied == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR,
+                     "cpp.replicated_service_app",
+                     "app_prepare_get_checkpoint got null occupied");
+                return ERR_INVALID_PARAMETERS.get();
+            }
+
+            return reinterpret_cast<replicated_service_app_type_1*>(app)
+                ->prepare_get_checkpoint(buffer, capacity, occupied)
+                .get();
         }
         
         static dsn_error_t app_get_checkpoint(
@@ -235,10 +310,37 @@ namespace dsn
             int state_capacity
             )
         {
+            if (app == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR, "cpp.replicated_service_app", "app_get_checkpoint got null app");
+                return ERR_INVALID_PARAMETERS.get();
+            }
+            if (state == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR, "cpp.replicated_service_app", "app_get_checkpoint got null state");
+                return ERR_INVALID_PARAMETERS.get();
+            }
+            if (state_capacity < 0)
+            {
+                dlog(LOG_LEVEL_ERROR,
+                     "cpp.replicated_service_app",
+                     "app_get_checkpoint got invalid state_capacity = %d",
+                     state_capacity);
+                return ERR_INVALID_PARAMETERS.get();
+            }
+            if (state_capacity < static_cast<int>(sizeof(dsn_app_learn_state)))
+            {
+                dlog(LOG_LEVEL_ERROR,
+                     "cpp.replicated_service_app",
+                     "app_get_checkpoint got invalid state_capacity = %d",
+                     state_capacity);
+                return ERR_INVALID_PARAMETERS.get();
+            }
+
             app_learn_state cpp_state;
             auto err = reinterpret_cast<replicated_service_app_type_1*>(app)->get_checkpoint(
                     learn_start, local_commit, learn_request, learn_request_size, cpp_state);
-            return err == ERR_OK ? cpp_state.to_c_state(*state, state_capacity) : err;
+            return err == ERR_OK ? cpp_state.to_c_state(*state, state_capacity).get() : err.get();
         }
         
         static dsn_error_t app_apply_checkpoint(
@@ -248,14 +350,35 @@ namespace dsn
             const dsn_app_learn_state* state
             )
         {
-            return reinterpret_cast<replicated_service_app_type_1*>(app)->apply_checkpoint(mode, local_commit, *state);
+            if (app == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR, "cpp.replicated_service_app", "app_apply_checkpoint got null app");
+                return ERR_INVALID_PARAMETERS.get();
+            }
+            if (state == nullptr)
+            {
+                dlog(LOG_LEVEL_ERROR, "cpp.replicated_service_app", "app_apply_checkpoint got null state");
+                return ERR_INVALID_PARAMETERS.get();
+            }
+
+            return reinterpret_cast<replicated_service_app_type_1*>(app)
+                ->apply_checkpoint(mode, local_commit, *state)
+                .get();
         }
     };
 
     /*! C++ wrapper of the \ref dsn_register_app function for framework hosted apps */
     template<typename TServiceApp>
-    void register_app_with_type_1_replication_support(const char* type_name)
+    bool register_app_with_type_1_replication_support(const char* type_name)
     {
+        if (type_name == nullptr || type_name[0] == '\0')
+        {
+            dlog(LOG_LEVEL_ERROR,
+                 "cpp.replicated_service_app",
+                 "register_app_with_type_1_replication_support got invalid type_name");
+            return false;
+        }
+
         dsn_app app;
         memset(&app, 0, sizeof(app));
         app.mask = DSN_APP_MASK_FRAMEWORK;
@@ -278,7 +401,7 @@ namespace dsn
         else
             app.layer2.apps.calls.on_batched_write_requests = replicated_service_app_type_1::app_on_batched_write_requests;
 
-        dsn_register_app(&app);
+        return dsn_register_app(&app);
     }
 
     /*@}*/
