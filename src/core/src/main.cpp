@@ -57,6 +57,7 @@
 # include "transient_memory.h"
 # include "library_utils.h"
 # include <cstdio>
+# include <exception>
 # include <fstream>
 
 # if defined(_WIN32)
@@ -305,9 +306,9 @@ DSN_API void dsn_config_dump(const char* file)
 extern bool dsn_log_init();
 
 // load all modules: local components, tools, frameworks, apps
-static void load_all_modules(::dsn::configuration_ptr config)
+static bool load_all_modules(::dsn::configuration_ptr config)
 {    
-    std::vector< std::pair<std::string, std::string> > modules;
+    std::vector<std::pair<std::string, std::string>> modules;
     std::map<std::string, std::size_t> module_map; // name -> index in modules
 
     // load local components, toollets, and tools
@@ -373,9 +374,8 @@ static void load_all_modules(::dsn::configuration_ptr config)
         auto hmod = ::dsn::utils::load_dynamic_library(m.first.c_str(), search_dirs);
         if (nullptr == hmod)
         {
-            dassert(false, "cannot load shared library '%s' specified in config file",
-                m.first.c_str());
-            break;
+            derror("cannot load shared library '%s' specified in config file", m.first.c_str());
+            return false;
         }
         else
         {
@@ -386,10 +386,12 @@ static void load_all_modules(::dsn::configuration_ptr config)
 # if !defined(_WIN32)
         typedef void(*dsn_module_init_fn)();
         dsn_module_init_fn init_fn = (dsn_module_init_fn)::dsn::utils::load_symbol(hmod, "dsn_module_init");
-        dassert(init_fn != nullptr,
-            "dsn_module_init is not present (%s), use MODULE_INIT_BEGIN/END to define it",
-            m.first.c_str()
-        );
+        if (init_fn == nullptr)
+        {
+            derror("dsn_module_init is not present (%s), use MODULE_INIT_BEGIN/END to define it",
+                   m.first.c_str());
+            return false;
+        }
         init_fn();
 # endif // ! _WIN32
         
@@ -397,11 +399,13 @@ static void load_all_modules(::dsn::configuration_ptr config)
         if (m.second.length() > 0)
         {
             dsn_app_bridge_t bridge_ptr = (dsn_app_bridge_t)::dsn::utils::load_symbol(hmod, "dsn_app_bridge");
-            dassert(bridge_ptr != nullptr,
-                "when dmodule_bridge_arguments is present (%s), function dsn_app_bridge must be implemented in module %s",
-                m.second.c_str(),
-                m.first.c_str()
-            );
+            if (bridge_ptr == nullptr)
+            {
+                derror("when dmodule_bridge_arguments is present (%s), function dsn_app_bridge must be implemented in module %s",
+                       m.second.c_str(),
+                       m.first.c_str());
+                return false;
+            }
 
             ddebug("call %s.dsn_app_bridge(...%s...)",
                 m.first.c_str(),
@@ -420,6 +424,7 @@ static void load_all_modules(::dsn::configuration_ptr config)
             bridge_ptr((int)args_ptr.size(), &args_ptr[0]);
         }
     }
+    return true;
 }
 
 void run_all_unit_tests_prepare_when_necessary();
@@ -469,7 +474,10 @@ bool run(
     }
 
     // load plugged modules
-    load_all_modules(dsn_all.config);
+    if (!load_all_modules(dsn_all.config))
+    {
+        return false;
+    }
 
     // prepare unit test run if necessary
     run_all_unit_tests_prepare_when_necessary();
@@ -619,7 +627,11 @@ bool run(
 
         if (create_it)
         {
-            ::dsn::service_engine::fast_instance().start_node(sp);
+            if (::dsn::service_engine::fast_instance().start_node(sp) == nullptr)
+            {
+                fprintf(stderr, "Fail to start app %s.\n", sp.name.c_str());
+                return false;
+            }
         }
     }
         
@@ -758,12 +770,22 @@ DSN_API void dsn_run(int argc, char** argv, bool sleep_after_init)
         }
     }
 
-    if (!run(config, 
-        config_args.size() > 0 ? config_args.c_str() : nullptr, 
-        overwrites.size() > 0 ? overwrites.c_str() : nullptr,
-        sleep_after_init, 
-        app_list
-    ))
+    bool run_succeeded = false;
+    try
+    {
+        run_succeeded = run(config,
+            config_args.size() > 0 ? config_args.c_str() : nullptr,
+            overwrites.size() > 0 ? overwrites.c_str() : nullptr,
+            sleep_after_init,
+            app_list
+        );
+    }
+    catch (const std::exception& err)
+    {
+        fprintf(stderr, "run the system failed due to exception: %s\n", err.what());
+    }
+
+    if (!run_succeeded)
     {
         fprintf(stderr, "run the system failed\n");
         dsn_exit(-1);
@@ -779,8 +801,17 @@ DSN_API bool dsn_run_config(const char* config, bool sleep_after_init)
         return false;
     }
 
-    std::string name;
-    return run(config, nullptr, nullptr, sleep_after_init, name);
+    try
+    {
+        std::string name;
+        return run(config, nullptr, nullptr, sleep_after_init, name);
+    }
+    catch (const std::exception& err)
+    {
+        fprintf(stderr, "run the system failed due to exception: %s\n", err.what());
+    }
+
+    return false;
 }
 
 DSN_API int dsn_get_all_apps(dsn_app_info* info_buffer, int count)

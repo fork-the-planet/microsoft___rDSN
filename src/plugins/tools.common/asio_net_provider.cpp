@@ -36,6 +36,8 @@
 #include "asio_net_provider.h"
 #include "asio_rpc_session.h"
 
+#include <exception>
+
 # ifdef __TITLE__
 # undef __TITLE__
 # endif
@@ -57,24 +59,32 @@ namespace dsn {
 
             int io_service_worker_count = (int)dsn_config_get_value_uint64("network", "io_service_worker_count", 1,
                 "thread number for io service (timer and boost network)");
-            for (int i = 0; i < io_service_worker_count; i++)
+            try
             {
-                _workers.push_back(std::shared_ptr<std::thread>(new std::thread([this, ctx, i]()
+                for (int i = 0; i < io_service_worker_count; i++)
                 {
-                    task::set_tls_dsn_context(node(), nullptr, ctx.queue);
-
-                    const char* name = ::dsn::tools::get_service_node_name(node());
-                    char buffer[128];
-                    int name_len = snprintf(buffer, sizeof(buffer), "%s.asio.%d", name, i);
-                    if (name_len < 0 || static_cast<size_t>(name_len) >= sizeof(buffer))
+                    _workers.push_back(std::shared_ptr<std::thread>(new std::thread([this, ctx, i]()
                     {
-                        dwarn("asio worker name is too long: %s", name);
-                    }
-                    task_worker::set_name(buffer);
+                        task::set_tls_dsn_context(node(), nullptr, ctx.queue);
 
-                    boost::asio::io_service::work work(_io_service);
-                    _io_service.run();
-                })));
+                        const char* name = ::dsn::tools::get_service_node_name(node());
+                        char buffer[128];
+                        int name_len = snprintf(buffer, sizeof(buffer), "%s.asio.%d", name, i);
+                        if (name_len < 0 || static_cast<size_t>(name_len) >= sizeof(buffer))
+                        {
+                            dwarn("asio worker name is too long: %s", name);
+                        }
+                        task_worker::set_name(buffer);
+
+                        boost::asio::io_service::work work(_io_service);
+                        _io_service.run();
+                    })));
+                }
+            }
+            catch (const std::exception& err)
+            {
+                derror("failed to start asio tcp worker thread, err: %s", err.what());
+                return ERR_NETWORK_START_FAILED;
             }
 
             _acceptor = nullptr;
@@ -283,7 +293,9 @@ namespace dsn {
 
             if (client_only)
             {
-                do
+                static const int max_client_port_retry_count = 10;
+                int retry_count = 0;
+                for (; retry_count < max_client_port_retry_count; retry_count++)
                 {
                     //FIXME: we actually do not need to set a random port for client if the rpc_engine is refactored
                     _address.assign_ipv4(get_local_ipv4(), (std::numeric_limits<uint16_t>::max)() -
@@ -297,9 +309,23 @@ namespace dsn {
                     }
                     catch (boost::system::system_error& err)
                     {
-                        ddebug("asio udp listen on port %u failed, err: %s", _address.port(), err.what());
+                        if (err.code() == boost::asio::error::address_in_use)
+                        {
+                            ddebug("asio udp listen on port %u failed, err: %s", _address.port(), err.what());
+                            continue;
+                        }
+
+                        derror("asio udp listen on port %u failed, err: %s", _address.port(), err.what());
+                        return ERR_NETWORK_START_FAILED;
                     }
-                } while (true);
+                }
+
+                if (retry_count >= max_client_port_retry_count)
+                {
+                    derror("asio udp failed to find an available client port after %d retries",
+                           max_client_port_retry_count);
+                    return ERR_ADDRESS_ALREADY_USED;
+                }
             }
             else
             {
@@ -316,24 +342,32 @@ namespace dsn {
                 }
             }
 
-            for (int i = 0; i < io_service_worker_count; i++)
+            try
             {
-                _workers.push_back(std::shared_ptr<std::thread>(new std::thread([this, ctx, i]()
+                for (int i = 0; i < io_service_worker_count; i++)
                 {
-                    task::set_tls_dsn_context(node(), nullptr, ctx.queue);
-
-                    const char* name = ::dsn::tools::get_service_node_name(node());
-                    char buffer[128];
-                    int name_len = snprintf(buffer, sizeof(buffer), "%s.asio.udp.%d.%d", name, (int)(this->address().port()), i);
-                    if (name_len < 0 || static_cast<size_t>(name_len) >= sizeof(buffer))
+                    _workers.push_back(std::shared_ptr<std::thread>(new std::thread([this, ctx, i]()
                     {
-                        dwarn("asio udp worker name is too long: %s", name);
-                    }
-                    task_worker::set_name(buffer);
+                        task::set_tls_dsn_context(node(), nullptr, ctx.queue);
 
-                    boost::asio::io_service::work work(_io_service);
-                    _io_service.run();
-                })));
+                        const char* name = ::dsn::tools::get_service_node_name(node());
+                        char buffer[128];
+                        int name_len = snprintf(buffer, sizeof(buffer), "%s.asio.udp.%d.%d", name, (int)(this->address().port()), i);
+                        if (name_len < 0 || static_cast<size_t>(name_len) >= sizeof(buffer))
+                        {
+                            dwarn("asio udp worker name is too long: %s", name);
+                        }
+                        task_worker::set_name(buffer);
+
+                        boost::asio::io_service::work work(_io_service);
+                        _io_service.run();
+                    })));
+                }
+            }
+            catch (const std::exception& err)
+            {
+                derror("failed to start asio udp worker thread, err: %s", err.what());
+                return ERR_NETWORK_START_FAILED;
             }
 
             do_receive();
