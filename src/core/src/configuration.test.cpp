@@ -34,6 +34,7 @@
  */
 
 # include <dsn/utility/configuration.h>
+# include <dsn/cpp/utils.h>
 # include <gtest/gtest.h>
 # include <algorithm>
 # include <fstream>
@@ -167,12 +168,12 @@ TEST(core, configuration)
     ASSERT_EQ(2.0, c->get_value<double>("apps.client", "unexist_double_key", 2.0, ""));
     ASSERT_EQ(1, c->get_value<long long>("apps.client", "count", 100, "client count"));
     ASSERT_EQ(100, c->get_value<long long>("apps.client", "unexist_long_long_key", 100, ""));
-    ASSERT_EQ(0xdeadbeef, c->get_value<long long>("apps.server", "hex_data", 100, ""));
+    ASSERT_EQ(0xdead, c->get_value<long long>("apps.server", "hex_data", 100, ""));
     ASSERT_EQ(1u, c->get_value<unsigned long long>("apps.client", "count", 100, "client count"));
     ASSERT_EQ(100u, c->get_value<unsigned long long>("apps.client", "unexist_unsigned_long_long_key", 100, ""));
     ASSERT_EQ(1, c->get_value<long>("apps.client", "count", 100, "client count"));
     ASSERT_EQ(100, c->get_value<long>("apps.client", "unexist_long_key", 100, ""));
-    ASSERT_EQ(0xdeadbeef, c->get_value<long>("apps.server", "hex_data", 100, ""));
+    ASSERT_EQ(0xdead, c->get_value<long>("apps.server", "hex_data", 100, ""));
     ASSERT_EQ(1u, c->get_value<unsigned long>("apps.client", "count", 100, "client count"));
     ASSERT_EQ(100u, c->get_value<unsigned long>("apps.client", "unexist_unsigned_long_key", 100, ""));
     ASSERT_EQ(1, c->get_value<int>("apps.client", "count", 100, "client count"));
@@ -186,14 +187,17 @@ TEST(core, configuration)
     ASSERT_TRUE(c->get_value<bool>("apps.client", "run", false, "client run"));
     ASSERT_FALSE(c->get_value<bool>("apps.client", "unexist_bool_key", false, ""));
 
+    ASSERT_TRUE(::dsn::utils::test::prepare_test_tmp_dir("dsn.core.configuration"));
+    const std::string dump_file =
+        ::dsn::utils::test::test_tmp_path("dsn.core.configuration", "config-sample-dump.ini");
     std::fstream out;
-    out.open("config-sample-dump.ini", std::ios::out);
+    out.open(dump_file.c_str(), std::ios::out);
     c->dump(out);
     out.close();
 
     printf("load config-sample-dump.ini\n");
     c.reset(new configuration());
-    ASSERT_TRUE(c->load("config-sample-dump.ini"));
+    ASSERT_TRUE(c->load(dump_file.c_str()));
     c->get_all_sections(sections);
     ASSERT_EQ(6u, sections.size());
     std::sort(sections.begin(), sections.end());
@@ -212,3 +216,26 @@ TEST(core, configuration)
     ASSERT_EQ(std::string("exsit2"), std::string(c->get_string_value("not-exsit", "not-exsit", "", "")));
 }
 
+TEST(core, configuration_invalid_numeric_values)
+{
+    configuration c;
+    const char* section = "invalid_numbers";
+
+    c.set(section, "invalid_int", "abc", "");
+    c.set(section, "partial_int", "123abc", "");
+    c.set(section, "overflow_int", "999999999999999999999999999999999999", "");
+    c.set(section, "invalid_unsigned_int", "-abc", "");
+    c.set(section, "partial_unsigned_int", "456abc", "");
+    c.set(section, "invalid_hex", "0xzz", "");
+    c.set(section, "invalid_uppercase_hex", "0Xzz", "");
+    c.set(section, "overflow_hex", "0xffffffffffffffff", "");
+
+    ASSERT_EQ(11, c.get_value<int>(section, "invalid_int", 11, ""));
+    ASSERT_EQ(12, c.get_value<long>(section, "partial_int", 12, ""));
+    ASSERT_EQ(13, c.get_value<long long>(section, "overflow_int", 13, ""));
+    ASSERT_EQ(16u, c.get_value<unsigned int>(section, "invalid_unsigned_int", 16, ""));
+    ASSERT_EQ(17u, c.get_value<unsigned int>(section, "partial_unsigned_int", 17, ""));
+    ASSERT_EQ(14, c.get_value<long>(section, "invalid_hex", 14, ""));
+    ASSERT_EQ(15, c.get_value<long long>(section, "invalid_uppercase_hex", 15, ""));
+    ASSERT_EQ(18, c.get_value<long long>(section, "overflow_hex", 18, ""));
+}

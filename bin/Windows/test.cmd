@@ -79,6 +79,19 @@ IF NOT EXIST "%build_dir%" (
     GOTO error
 )
 
+SET REPORT_DIR=%build_dir%\test_reports
+SET DSN_TEST_TMP_DIR=%build_dir%\test_tmp
+IF NOT EXIST "%REPORT_DIR%" MKDIR "%REPORT_DIR%"
+IF EXIST "%DSN_TEST_TMP_DIR%" (
+    RMDIR /S /Q "%DSN_TEST_TMP_DIR%"
+    IF ERRORLEVEL 1 (
+        CALL "%bin_dir%\echoc.exe" 4 "Failed to clean %DSN_TEST_TMP_DIR%. Close previous tests or terminals that are using this directory, then retry."
+        GOTO error
+    )
+)
+MKDIR "%DSN_TEST_TMP_DIR%"
+IF ERRORLEVEL 1 GOTO error
+
 CALL "%bin_dir%\echoc.exe" 2 run the tests here ...
 
 REM set the path of built binaries
@@ -95,9 +108,13 @@ IF EXIST "%build_dir%\bin\dsn.svchost\%build_type%\dsn.svchost.exe"  SET DSN_TES
 FOR /D %%A IN ("%build_dir%\test\*") DO (
     IF EXIST "%%A\gtests" (
         PUSHD "%%A"
-        FOR /F "usebackq" %%I IN ("%%A\gtests") DO (
+        FOR /F "usebackq eol=# delims=" %%I IN ("%%A\gtests") DO (
             IF EXIST "%%A" (
                 ECHO =========== %DSN_TEST_HOST% %%I ======================
+                IF EXIST data\ RMDIR /S /Q data
+                IF EXIST data DEL /F /Q data
+                IF EXIST core\ RMDIR /S /Q core
+                IF EXIST core DEL /F /Q core
                 CALL "%DSN_TEST_HOST%" "%%I"
                 IF ERRORLEVEL 1 POPD && ECHO test "%%I" failed && goto error
             )
@@ -108,9 +125,14 @@ FOR /D %%A IN ("%build_dir%\test\*") DO (
 
 REM run e-e tests
 FOR /D %%A IN ("%build_dir%\bin\*") DO (
+    ECHO %%A\
     IF EXIST "%%A\test.cmd" (
         PUSHD "%%A"
-        ECHO ================= %%A\test.cmd ================================
+        ECHO ============ run test.cmd in %%A\ ============
+        IF EXIST data\ RMDIR /S /Q data
+        IF EXIST data DEL /F /Q data
+        IF EXIST core\ RMDIR /S /Q core
+        IF EXIST core DEL /F /Q core
         CALL test.cmd "%TOP_DIR%" %build_type% "%build_dir%"
         IF ERRORLEVEL 1 POPD && ECHO test "%%A" failed && goto error
         POPD
@@ -139,4 +161,5 @@ GOTO exit
     exit /B %DSN_TMP_EXIT_CODE%
 
 :exit
+    ECHO Test succeed
     exit /B 0

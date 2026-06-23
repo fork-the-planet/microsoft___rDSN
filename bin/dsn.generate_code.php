@@ -67,7 +67,7 @@ function get_codegen_tool($tool, $os_name)
     {
         echo "\t".$candidate.PHP_EOL;
     }
-    exit(0);
+    exit(1);
 }
 
 global $g_idl;
@@ -141,7 +141,7 @@ else
 if (!file_exists($g_idl))
 {
     echo "input file '". $g_idl ."' is not found.".PHP_EOL;
-    exit(0);
+    exit(1);
 }
 else
 {
@@ -160,20 +160,20 @@ else
     else
     {
         echo "unknown idl type for input file '".$g_idl."'".PHP_EOL;
-        exit(0);
+        exit(1);
     }
 }
 
 if ($g_lang != "cpp" && $g_lang != "csharp" && $g_lang != "js")
 {
     echo "unsupported language : ".$g_lang.PHP_EOL;
-    exit(0);
+    exit(1);
 }
 
 if ($g_lang == "js" && ($g_idl_type != "thrift" || $g_idl_format != "json"))
 {
     echo "currently for js we only support json format of thrift, please check your arguments.".PHP_EOL;
-    exit(0);
+    exit(1);
 }
 
 $pos = strrpos($g_idl, "\\");
@@ -206,6 +206,23 @@ if (!file_exists($g_out_dir))
     }
 }
 
+function normalize_line_endings($path)
+{
+    $content = file_get_contents($path);
+    if ($content === FALSE)
+    {
+        echo "failed to read generated file '".$path."'".PHP_EOL;
+        exit(1);
+    }
+
+    $content = str_replace(array("\r\n", "\r"), "\n", $content);
+    if (file_put_contents($path, $content) === FALSE)
+    {
+        echo "failed to normalize generated file '".$path."'".PHP_EOL;
+        exit(1);
+    }
+}
+
 // generate service definition file from input idl file using the code generation tools
 $os_name = explode(" ", php_uname())[0];
 switch ($g_idl_type)
@@ -219,7 +236,7 @@ case "thrift":
         if (!file_exists($g_idl_php))
         {
             echo "failed invoke thrift tool to generate '".$g_idl_php."'".PHP_EOL;
-            exit(0);
+            exit(1);
         }
         //we expect the cpp to generate the moveable types
         $lang_with_options = $g_lang;
@@ -242,7 +259,7 @@ case "proto":
         if (!file_exists($g_idl_php))
         {
             echo "failed invoke protoc tool to generate '".$g_idl_php."'".PHP_EOL;
-            exit(0);
+            exit(1);
         }
 
         $command = $protoc." --".$g_lang."_out=".$g_out_dir." ".$g_idl." -I=".$g_idl_dir;
@@ -252,7 +269,7 @@ case "proto":
     break;
 default:
     echo "idl type '". $g_idl_type ."' not supported yet!".PHP_EOL;
-    exit(0);
+    exit(1);
 }
 
 // load annotations when they are present
@@ -262,7 +279,7 @@ if (file_exists($g_idl.".annotations"))
     if (FALSE == $annotations)
     {
         echo "read annotation file $g_idl.annotations failed".PHP_EOL;
-        exit(0);
+        exit(1);
     }
     
     $as = "<?php".PHP_EOL;
@@ -279,7 +296,12 @@ if (file_exists($g_idl.".annotations"))
     $as .= "));".PHP_EOL;
     $as .= "?>".PHP_EOL;
     
-    file_put_contents($g_idl_php, $as, FILE_APPEND);
+    if (file_put_contents($g_idl_php, $as, FILE_APPEND) === FALSE)
+    {
+        echo "failed to append annotations to '".$g_idl_php."'".PHP_EOL;
+        exit(1);
+    }
+    normalize_line_endings($g_idl_php);
 }
 
 function generate_files_from_dir($dr)
@@ -333,10 +355,11 @@ function generate_files_from_dir($dr)
         if (!file_exists($output_file))
         {
             echo "failed to generate '".$output_file."'".PHP_EOL;
-            exit(0);
+            exit(1);
         }
         else
         {
+            normalize_line_endings($output_file);
             echo "generate '".$output_file."' successfully!".PHP_EOL;
         }
     }
@@ -346,7 +369,7 @@ function generate_files_from_dir($dr)
 if (!file_exists($g_templates."/".$g_lang))
 {
     echo "specified language '" . $g_lang. "' is not supported".PHP_EOL;
-    exit(0);
+    exit(1);
 }
 
 generate_files_from_dir($g_templates."/".$g_lang);
@@ -383,7 +406,7 @@ if ($add_idl_file_name != "")
     if (!copy($add_file, $target))
     {
         echo "failed to copy ".$add_file;
-        exit(0);
+        exit(1);
     }
 }
 ?>

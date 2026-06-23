@@ -35,6 +35,9 @@
 
 
 # include "cli_app.h"
+# include <climits>
+# include <cstdint>
+# include <dsn/cpp/utils.h>
 # include <iostream>
 
 namespace dsn {
@@ -101,8 +104,17 @@ namespace dsn {
                     else
                     {
                         std::string machine = args[1];
-                        int port = atoi(args[2].c_str());
-                        _timeout = std::chrono::seconds(atoi(args[3].c_str()));
+                        uint16_t port = 0;
+                        unsigned int timeout_seconds = 0;
+                        if (!::dsn::utils::lexical_cast_integer<uint16_t>(
+                                std::string(args[2].c_str(), args[2].size()), port) ||
+                            !::dsn::utils::lexical_cast_integer<unsigned int>(
+                                std::string(args[3].c_str(), args[3].size()), timeout_seconds))
+                        {
+                            std::cout << "invalid remote port or timeout" << std::endl;
+                            continue;
+                        }
+                        _timeout = std::chrono::seconds(timeout_seconds);
 
                         _target.assign_ipv4(machine.c_str(), port);
 

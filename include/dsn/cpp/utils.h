@@ -38,6 +38,7 @@
 # include <dsn/cpp/auto_codes.h>
 # include <dsn/cpp/callocator.h>
 # include <dsn/cpp/safe_string.h>
+# include <cstdlib>
 # include <cstdint>
 # include <functional>
 # include <limits>
@@ -252,6 +253,24 @@ namespace dsn {
             return static_cast<T>(value);
         }
 
+        template <typename T>
+        inline typename std::enable_if<
+            std::is_integral<T>::value &&
+            !std::is_same<T, bool>::value,
+            bool>::type
+        lexical_cast_integer(const std::string& str, T& result)
+        {
+            try
+            {
+                result = lexical_cast_integer<T>(str);
+                return true;
+            }
+            catch (const std::exception&)
+            {
+                return false;
+            }
+        }
+
         inline bool lexical_cast_bool(const std::string& str)
         {
             if (str == "0")
@@ -287,6 +306,21 @@ namespace dsn {
             }
 
             return value;
+        }
+
+        template <typename T>
+        inline typename std::enable_if<std::is_floating_point<T>::value, bool>::type
+        lexical_cast_floating_point(const std::string& str, T& result)
+        {
+            try
+            {
+                result = lexical_cast_floating_point<T>(str);
+                return true;
+            }
+            catch (const std::exception&)
+            {
+                return false;
+            }
         }
 
         template <typename T>
@@ -374,5 +408,32 @@ namespace dsn {
                 return err;
             }
         }
-    }
-} // end namespace dsn::utils
+
+        namespace test {
+
+            inline std::string test_tmp_root()
+            {
+                const char* root = std::getenv("DSN_TEST_TMP_DIR");
+                return (root != nullptr && root[0] != '\0') ? std::string(root) : std::string("test_tmp");
+            }
+
+            inline std::string test_tmp_dir(const std::string& name)
+            {
+                return ::dsn::utils::filesystem::path_combine(test_tmp_root(), name);
+            }
+
+            inline std::string test_tmp_path(const std::string& name, const std::string& path)
+            {
+                return ::dsn::utils::filesystem::path_combine(test_tmp_dir(name), path);
+            }
+
+            inline bool prepare_test_tmp_dir(const std::string& name)
+            {
+                const auto dir = test_tmp_dir(name);
+                return ::dsn::utils::filesystem::remove_path(dir) &&
+                       ::dsn::utils::filesystem::create_directory(dir);
+            }
+
+        } // namespace test
+    } // namespace utils
+} // end namespace dsn

@@ -34,8 +34,11 @@
  */
 
 # include <dsn/tool-api/global_config.h>
+# include <climits>
 # include <cstdio>
+# include <cstdint>
 # include <thread>
+# include <dsn/cpp/utils.h>
 # include <dsn/tool-api/task_spec.h>
 # include <dsn/tool-api/network.h>
 # include <dsn/utility/singleton_store.h>
@@ -97,9 +100,8 @@ static bool build_client_network_confs(
             
             network_client_config ns;
             ns.factory_name = vs.begin()->c_str();
-            ns.message_buffer_block_size = atoi(vs.rbegin()->c_str());
-
-            if (ns.message_buffer_block_size == 0)
+            if (!::dsn::utils::lexical_cast_integer<int>(*vs.rbegin(), ns.message_buffer_block_size) ||
+                (ns.message_buffer_block_size <= 0))
             {
                 fprintf(stderr, "invalid message buffer size specified: '%s'\n", vs.rbegin()->c_str());
                 return false;
@@ -161,7 +163,12 @@ static bool build_server_network_confs(
             return false;
         }
 
-        int port = atoi(ks.begin()->c_str());
+        uint16_t port = 0;
+        if (!::dsn::utils::lexical_cast_integer<uint16_t>(*ks.begin(), port))
+        {
+            fprintf(stderr, "invalid network server port specified: '%s'\n", ks.begin()->c_str());
+            return false;
+        }
         auto k3 = *ks.rbegin();
 
         if (is_template)
@@ -209,9 +216,8 @@ static bool build_server_network_confs(
 
             network_server_config ns(port, ch);
             ns.factory_name = vs.begin()->c_str();
-            ns.message_buffer_block_size = atoi(vs.rbegin()->c_str());
-
-            if (ns.message_buffer_block_size == 0)
+            if (!::dsn::utils::lexical_cast_integer<int>(*vs.rbegin(), ns.message_buffer_block_size) ||
+                (ns.message_buffer_block_size <= 0))
             {
                 fprintf(stderr, "invalid message buffer size specified: '%s'\n", vs.rbegin()->c_str());
                 return false;
@@ -388,7 +394,12 @@ bool service_spec::init_app_specs()
     dsn_app dapp;
     memset(&dapp, 0, sizeof(dapp));
     dapp.mask = DSN_APP_MASK_APP;
-    snprintf(dapp.type_name, sizeof(dapp.type_name), "%s", mimic_app_role_name);
+    int mimic_type_len = snprintf(dapp.type_name, sizeof(dapp.type_name), "%s", mimic_app_role_name);
+    if (mimic_type_len < 0 || static_cast<size_t>(mimic_type_len) >= sizeof(dapp.type_name))
+    {
+        fprintf(stderr, "mimic app type name is too long\n");
+        return false;
+    }
     dapp.layer1.create = mimic_app_create;
     dapp.layer1.destroy = mimic_app_destroy;
     dapp.layer1.start = mimic_app_start;
@@ -475,7 +486,12 @@ bool service_spec::init_app_specs()
             for (int i = 1; i <= app.count; i++)
             {
                 char buf[16];
-                snprintf(buf, sizeof(buf), "%u", i);
+                int len = snprintf(buf, sizeof(buf), "%u", i);
+                if (len < 0 || static_cast<size_t>(len) >= sizeof(buf))
+                {
+                    fprintf(stderr, "failed to format app index %d\n", i);
+                    return false;
+                }
                 app.name = (app.count > 1 ? (app.role_name + buf) : app.role_name);
                 app.id = ++app_id;
                 app.index = i;

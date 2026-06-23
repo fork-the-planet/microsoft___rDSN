@@ -35,11 +35,15 @@
 
 #include "simple_logger.h"
 #include <gtest/gtest.h>
+#include <dsn/cpp/utils.h>
+#include <cerrno>
+#include <cstring>
 
 using namespace dsn;
 using namespace dsn::tools;
 
 static const int simple_logger_gc_gap = 20;
+static std::string simple_logger_original_dir;
 
 static void get_log_file_index(std::vector<int> &log_index)
 {
@@ -69,16 +73,15 @@ static void clear_files(std::vector<int> &log_index)
 }
 
 static void prepare_test_dir() {
-    const char* dir = "./test";
-    std::string dr(dir);
-    dsn::utils::filesystem::create_directory(dr);
-    chdir(dir);
+    ASSERT_TRUE(dsn::utils::filesystem::get_current_directory(simple_logger_original_dir));
+    ASSERT_TRUE(::dsn::utils::test::prepare_test_tmp_dir("dsn.tools.common.simple_logger"));
+    const std::string dr = ::dsn::utils::test::test_tmp_dir("dsn.tools.common.simple_logger");
+    const char* dir = dr.c_str();
+    ASSERT_EQ(0, chdir(dir)) << strerror(errno);
 }
 
 static void finish_test_dir() {
-    const char* dir = "./test";
-    chdir("..");
-    rmdir(dir);
+    ASSERT_EQ(0, chdir(simple_logger_original_dir.c_str())) << strerror(errno);
 }
 
 void log_print(logging_provider* logger, const char* fmt, ...) {
