@@ -38,6 +38,7 @@
 # include <dsn/cpp/serialization.h>
 # include <dsn/cpp/task_helper.h>
 # include <dsn/cpp/function_traits.h>
+# include <utility>
 
 namespace dsn
 { 
@@ -300,7 +301,16 @@ namespace dsn
                     typename is_typed_rpc_callback<TCallback>::response_t response{};
                     if (err == ERR_OK)
                     {
-                        ::dsn::unmarshall(resp, response);
+                        decltype(response) parsed{};
+                        auto decode_err = ::dsn::try_unmarshall(resp, parsed);
+                        if (decode_err != ERR_OK)
+                        {
+                            err = decode_err;
+                        }
+                        else
+                        {
+                            response = std::move(parsed);
+                        }
                     }
                     cb_fwd(err, std::move(response));
                 },
@@ -347,7 +357,13 @@ namespace dsn
             {
                 return nullptr;
             }
-            ::dsn::marshall(msg, std::forward<TRequest>(req));
+            auto err = ::dsn::try_marshall(msg, std::forward<TRequest>(req));
+            if (err != ERR_OK)
+            {
+                derror("marshall request failed: %s", err.to_string());
+                dsn_msg_release_ref(msg);
+                return nullptr;
+            }
             return call(server, msg, owner, std::forward<TCallback>(callback), reply_thread_hash);
         }
 
@@ -382,7 +398,13 @@ namespace dsn
             {
                 return rpc_message_helper(nullptr);
             }
-            ::dsn::marshall(msg, std::forward<TRequest>(req));
+            auto err = ::dsn::try_marshall(msg, std::forward<TRequest>(req));
+            if (err != ERR_OK)
+            {
+                derror("marshall request failed: %s", err.to_string());
+                dsn_msg_release_ref(msg);
+                return rpc_message_helper(nullptr);
+            }
             return rpc_message_helper(msg);
         }
 
@@ -431,7 +453,16 @@ namespace dsn
             result.first = task->error();
             if (task->error() == ::dsn::ERR_OK)
             {
-                ::dsn::unmarshall(task->response(), result.second);
+                TResponse parsed{};
+                auto decode_err = ::dsn::try_unmarshall(task->response(), parsed);
+                if (decode_err != ::dsn::ERR_OK)
+                {
+                    result.first = decode_err;
+                }
+                else
+                {
+                    result.second = std::move(parsed);
+                }
             }
             return result;
         }

@@ -37,6 +37,7 @@
 
 # include <string>
 # include <sstream>
+# include <stdexcept>
 # include <dsn/cpp/serialization_helper/dsn_types.h>
 # include <dsn/cpp/rpc_stream.h>
 
@@ -82,7 +83,8 @@ namespace dsn
         switch (fmt)
         {
             THRIFT_MARSHALLER
-        default: dassert(false, serialization::no_registered_function_error_notice(value, fmt).c_str());
+        default:
+            throw std::invalid_argument(serialization::no_registered_function_error_notice(value, fmt));
         }
     }
 
@@ -92,7 +94,8 @@ namespace dsn
         switch (fmt)
         {
             THRIFT_UNMARSHALLER
-        default: dassert(false, serialization::no_registered_function_error_notice(value, fmt).c_str());
+        default:
+            throw std::invalid_argument(serialization::no_registered_function_error_notice(value, fmt));
         }
     }
 #else
@@ -120,7 +123,8 @@ namespace dsn
         switch (fmt) \
         { \
             SerializationType##_MARSHALLER \
-            default: dassert(false, serialization::no_registered_function_error_notice(value, fmt).c_str()); \
+            default: \
+                throw std::invalid_argument(serialization::no_registered_function_error_notice(value, fmt)); \
         } \
     } \
     inline void unmarshall(binary_reader& reader, GType &value, dsn_msg_serialize_format fmt) \
@@ -128,34 +132,81 @@ namespace dsn
         switch (fmt) \
         { \
             SerializationType##_UNMARSHALLER \
-            default: dassert(false, serialization::no_registered_function_error_notice(value, fmt).c_str()); \
+            default: throw std::invalid_argument(serialization::no_registered_function_error_notice(value, fmt)); \
         } \
     }
 
     template<typename T>
-    inline void marshall(dsn_message_t msg, const T& val)
+    inline void marshall(dsn_message_t msg,
+                         const T& val,
+                         dsn_msg_serialize_format fmt = DSF_INVALID)
     {
-        dassert(msg != nullptr, "marshall got null message");
+        if (msg == nullptr)
+        {
+            throw std::invalid_argument("marshall got null message");
+        }
 
-        ::dsn::rpc_write_stream writer(msg);
-        marshall(writer, val, dsn_msg_get_serialize_format(msg));
-    }
-
-    template<typename T>
-    inline void marshall(dsn_message_t msg, const T& val, dsn_msg_serialize_format fmt)
-    {
-        dassert(msg != nullptr, "marshall got null message");
+        if (fmt == DSF_INVALID)
+        {
+            fmt = dsn_msg_get_serialize_format(msg);
+        }
 
         ::dsn::rpc_write_stream writer(msg);
         marshall(writer, val, fmt);
     }
 
     template<typename T>
-    inline void unmarshall(dsn_message_t msg, /*out*/ T& val)
+    inline error_code try_marshall(dsn_message_t msg,
+                                   const T& val,
+                                   dsn_msg_serialize_format fmt = DSF_INVALID)
     {
-        dassert(msg != nullptr, "unmarshall got null message");
+        try
+        {
+            marshall(msg, val, fmt);
+            return ERR_OK;
+        }
+        catch (const std::invalid_argument&)
+        {
+            return ERR_INVALID_PARAMETERS;
+        }
+        catch (...)
+        {
+            return ERR_INVALID_DATA;
+        }
+    }
+
+    template<typename T>
+    inline void unmarshall(dsn_message_t msg,
+                           /*out*/ T& val,
+                           dsn_msg_serialize_format fmt = DSF_INVALID)
+    {
+        if (msg == nullptr)
+        {
+            throw std::invalid_argument("unmarshall got null message");
+        }
+
+        if (fmt == DSF_INVALID)
+        {
+            fmt = dsn_msg_get_serialize_format(msg);
+        }
 
         ::dsn::rpc_read_stream reader(msg);
-        unmarshall(reader, val, dsn_msg_get_serialize_format(msg));
+        unmarshall(reader, val, fmt);
+    }
+
+    template<typename T>
+    inline error_code try_unmarshall(dsn_message_t msg,
+                                     /*out*/ T& val,
+                                     dsn_msg_serialize_format fmt = DSF_INVALID)
+    {
+        try
+        {
+            unmarshall(msg, val, fmt);
+            return ERR_OK;
+        }
+        catch (...)
+        {
+            return ERR_INVALID_DATA;
+        }
     }
 }

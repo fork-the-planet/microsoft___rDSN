@@ -47,6 +47,7 @@
 # include <cerrno>
 # include <chrono>
 # include <cstring>
+# include <stdexcept>
 # include <sys/types.h>
 # include <sys/stat.h>
 # include <random>
@@ -401,8 +402,7 @@ namespace dsn
         // now ret should be sizeof(len).
         if (len < 0)
         {
-            derror("binary_reader::read got negative string length: %d", len);
-            return 0;
+            throw std::invalid_argument("binary_reader::read got negative string length");
         }
         else if (len == 0)
         {
@@ -417,8 +417,7 @@ namespace dsn
         }
         else
         {
-            derror("binary_reader::read string beyond the end of buffer");
-            return 0;
+            throw std::out_of_range("binary_reader::read string beyond the end of buffer");
         }
         
         return ret;
@@ -437,8 +436,7 @@ namespace dsn
         // now ret should be sizeof(len).
         if (len < 0)
         {
-            derror("binary_reader::read got negative blob length: %d", len);
-            return 0;
+            throw std::invalid_argument("binary_reader::read got negative blob length");
         }
         else if (len == 0)
         {
@@ -462,8 +460,7 @@ namespace dsn
         }
         else
         {
-            derror("binary_reader::read blob beyond the end of buffer");
-            return 0;
+            throw std::out_of_range("binary_reader::read blob beyond the end of buffer");
         }
 
         return ret;
@@ -473,8 +470,7 @@ namespace dsn
     {
         if (sz < 0)
         {
-            dassert(false, "sz is negative: %d", sz);
-            return 0;
+            throw std::invalid_argument("binary_reader::read got negative size");
         }
         else if (sz == 0)
         {
@@ -483,7 +479,10 @@ namespace dsn
         }
         else if (sz <= get_remaining_size())
         {
-            dassert(buffer != nullptr, "binary_reader::read got null buffer");
+            if (buffer == nullptr)
+            {
+                throw std::invalid_argument("binary_reader::read got null buffer");
+            }
 
             memcpy((void*)buffer, _ptr, sz);
             _ptr += sz;
@@ -492,8 +491,7 @@ namespace dsn
         }
         else
         {
-            derror("binary_reader::read beyond the end of buffer");
-            return 0;
+            throw std::out_of_range("binary_reader::read beyond the end of buffer");
         }
     }
 
@@ -531,8 +529,7 @@ namespace dsn
     {
         if (count < 0)
         {
-            dassert(false, "count is negative: %d", count);
-            return false;
+            throw std::invalid_argument("binary_reader::skip got negative count");
         }
         else if (count <= get_remaining_size())
         {
@@ -543,8 +540,7 @@ namespace dsn
         }
         else
         {
-            dassert(false, "read beyond the end of buffer");
-            return false;
+            throw std::out_of_range("read beyond the end of buffer");
         }
     }
 
@@ -552,7 +548,10 @@ namespace dsn
 
     binary_writer::binary_writer(int reserveBufferSize)
     {
-        dassert(reserveBufferSize >= 0, "binary_writer got negative reserve buffer size");
+        if (reserveBufferSize < 0)
+        {
+            throw std::invalid_argument("binary_writer got negative reserve buffer size");
+        }
         _total_size = 0;
         _buffers.reserve(1);
         _reserved_size_per_buffer =
@@ -667,7 +666,10 @@ namespace dsn
 
     void binary_writer::write_empty(int sz)
     {
-        dassert(sz >= 0, "binary_writer::write_empty got negative size");
+        if (sz < 0)
+        {
+            throw std::invalid_argument("binary_writer::write_empty got negative size");
+        }
         if (sz == 0)
         {
             return;
@@ -689,8 +691,10 @@ namespace dsn
                 allocSize = sz;
 
             create_buffer(allocSize);
-            dassert(_current_buffer != nullptr && _current_buffer_length > 0,
-                    "binary_writer::write_empty failed to create buffer");
+            if (_current_buffer == nullptr || _current_buffer_length <= 0)
+            {
+                throw std::runtime_error("binary_writer::write_empty failed to create buffer");
+            }
             _current_offset += sz;
         }
 
@@ -699,12 +703,18 @@ namespace dsn
 
     void binary_writer::write(const char* buffer, int sz)
     {
-        dassert(sz >= 0, "binary_writer::write got negative size");
+        if (sz < 0)
+        {
+            throw std::invalid_argument("binary_writer::write got negative size");
+        }
         if (sz == 0)
         {
             return;
         }
-        dassert(buffer != nullptr, "binary_writer::write got null buffer");
+        if (buffer == nullptr)
+        {
+            throw std::invalid_argument("binary_writer::write got null buffer");
+        }
 
         int rem_size = _current_buffer_length - _current_offset;
         if (rem_size >= sz)
@@ -728,8 +738,10 @@ namespace dsn
                 allocSize = sz;
 
             create_buffer(allocSize);
-            dassert(_current_buffer != nullptr && _current_buffer_length > 0,
-                    "binary_writer::write failed to create buffer");
+            if (_current_buffer == nullptr || _current_buffer_length <= 0)
+            {
+                throw std::runtime_error("binary_writer::write failed to create buffer");
+            }
             memcpy((void*)(_current_buffer + _current_offset), buffer + rem_size, (size_t)sz);
             _current_offset += sz;
             _total_size += sz;
@@ -738,15 +750,20 @@ namespace dsn
 
     bool binary_writer::next(void** data, int* size)
     {
-        dassert(data != nullptr && size != nullptr, "binary_writer::next got null output parameter");
+        if (data == nullptr || size == nullptr)
+        {
+            throw std::invalid_argument("binary_writer::next got null output parameter");
+        }
 
         int rem_size = _current_buffer_length - _current_offset;
         if (rem_size == 0)
         {
             create_buffer(_reserved_size_per_buffer);
             rem_size = _current_buffer_length;
-            dassert(_current_buffer != nullptr && rem_size > 0,
-                    "binary_writer::next failed to create buffer");
+            if (_current_buffer == nullptr || rem_size <= 0)
+            {
+                throw std::runtime_error("binary_writer::next failed to create buffer");
+            }
         }
 
         *size = rem_size;
@@ -758,8 +775,10 @@ namespace dsn
 
     bool binary_writer::backup(int count)
     {
-        dassert(count >= 0 && count <= _current_offset,
-                "currently we don't support backup before the last buffer's header");
+        if (count < 0 || count > _current_offset)
+        {
+            throw std::invalid_argument("currently we don't support backup before the last buffer's header");
+        }
         _current_offset -= count;
         _total_size -= count;
         return true;

@@ -38,6 +38,7 @@
 # include <dsn/service_api_c.h>
 # include <dsn/cpp/blob.h>
 # include <dsn/cpp/auto_codes.h>
+# include <stdexcept>
 
 namespace dsn
 {
@@ -66,14 +67,20 @@ namespace dsn
 
         void set_read_msg(dsn_message_t msg)
         {
-            dassert(msg != nullptr, "rpc_read_stream::set_read_msg got null message");
+            if (msg == nullptr)
+            {
+                throw std::invalid_argument("rpc_read_stream::set_read_msg got null message");
+            }
 
             assign(msg, false);
 
             void* ptr;
             size_t size;
             bool r = dsn_msg_read_next(msg, &ptr, &size);
-            dassert(r, "read msg must have one segment of buffer ready");
+            if (!r)
+            {
+                throw std::out_of_range("read msg must have one segment of buffer ready");
+            }
 
             blob bb((const char*)ptr, 0, (int)size);
             init(bb);
@@ -121,8 +128,10 @@ namespace dsn
         {
             if (!_last_write_next_committed)
             {
-                dassert(dsn_msg_write_commit(native_handle(), (size_t)(total_size() - _last_write_next_total_size)),
-                        "dsn_msg_write_commit failed");
+                if (!dsn_msg_write_commit(native_handle(), (size_t)(total_size() - _last_write_next_total_size)))
+                {
+                    throw std::runtime_error("dsn_msg_write_commit failed");
+                }
                 _last_write_next_committed = true;
             }
         }
@@ -145,8 +154,14 @@ namespace dsn
 
             void* ptr;
             size_t sz;
-            dassert(dsn_msg_write_next(native_handle(), &ptr, &sz, size), "dsn_msg_write_next failed");
-            dassert(sz >= size, "allocated buffer size must be not less than the required size");
+            if (!dsn_msg_write_next(native_handle(), &ptr, &sz, size))
+            {
+                throw std::runtime_error("dsn_msg_write_next failed");
+            }
+            if (sz < size)
+            {
+                throw std::runtime_error("allocated buffer size must be not less than the required size");
+            }
             bb.assign((const char*)ptr, 0, (int)sz);
 
             _last_write_next_total_size = total_size();
